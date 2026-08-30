@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- AOT-гейт: native publish + trim analysis без warning-ов (док 34, AOT и производительность).
+         Отключено для обычной сборки: включается при -c Release -r win-x64. -->
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed Condition="'$(RuntimeIdentifier)' != ''">true</PublishTrimmed>
+    <TrimMode Condition="'$(RuntimeIdentifier)' != ''">full</TrimMode>
+    <SuppressTrimAnalysisWarnings Condition="'$(RuntimeIdentifier)' != ''">false</SuppressTrimAnalysisWarnings>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Generators\AvtoBus.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+</Project>

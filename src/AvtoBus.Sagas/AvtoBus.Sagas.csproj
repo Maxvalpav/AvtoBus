@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\AvtoBus.Testing\AvtoBus.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

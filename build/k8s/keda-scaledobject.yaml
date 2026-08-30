@@ -1,0 +1,31 @@
+# ScaledObject для KEDA (идея 472): количество реплик воркера определяется глубиной
+# очереди/лагом консьюмера, а не фиксированным replicas в Deployment.
+#
+# Пример для RabbitMQ. Другие триггеры: kafka, nats-jetstream, redis-streams, postgresql.
+# Координаты воркера должны публиковать avtobus.queue.depth / avtobus.consumer.lag
+# (идеи 302, 94) — см. Observability/BusTelemetry.cs.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: avtobus-worker
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: avtobus-worker            # имя Deployment
+  pollingInterval: 5
+  cooldownPeriod: 30
+  minReplicaCount: 1
+  maxReplicaCount: 20
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: orders.place-order
+        mode: QueueLength
+        value: "50"                 # > 50 сообщений в очереди → масштабируемся вверх
+      authenticationRef:
+        name: rabbitmq-credentials
+    - type: cpu                    # страховка: CPU тоже участвует в решении
+      metadata:
+        type: Utilization
+        value: "70"

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <!-- Тесты шины намеренно ждут реального времени доставки; проброс токена теста тут не нужен. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Cli\AvtoBus.Cli.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Security\AvtoBus.Security.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Multitenancy\AvtoBus.Multitenancy.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Sagas\AvtoBus.Sagas.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Outbox.EfCore\AvtoBus.Outbox.EfCore.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.EventSourcing\AvtoBus.EventSourcing.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Scheduling\AvtoBus.Scheduling.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Kafka\AvtoBus.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.RabbitMq\AvtoBus.RabbitMq.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Nats\AvtoBus.Nats.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Redis\AvtoBus.Redis.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Sql\AvtoBus.Sql.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.AzureServiceBus\AvtoBus.AzureServiceBus.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Serialization.MessagePack\AvtoBus.Serialization.MessagePack.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Serialization.Protobuf\AvtoBus.Serialization.Protobuf.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Testing\AvtoBus.Testing.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Streams\AvtoBus.Streams.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Workflow\AvtoBus.Workflow.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Abstractions\AvtoBus.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="OpenTelemetry" />
+    <PackageReference Include="OpenTelemetry.Exporter.InMemory" />
+  </ItemGroup>
+
+</Project>

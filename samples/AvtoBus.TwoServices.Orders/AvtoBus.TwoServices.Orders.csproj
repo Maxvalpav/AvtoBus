@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Outbox.EfCore\AvtoBus.Outbox.EfCore.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.RabbitMq\AvtoBus.RabbitMq.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Kafka\AvtoBus.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Dashboard\AvtoBus.Dashboard.csproj" />
+    <ProjectReference Include="..\AvtoBus.TwoServices.Contracts\AvtoBus.TwoServices.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>AvtoBus.Redis</PackageId>
+    <Description>Redis Streams transport for AvtoBus: consumer groups, XAUTOCLAIM reclaim of stuck messages (idea 65).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvtoBus.Core\AvtoBus.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+</Project>

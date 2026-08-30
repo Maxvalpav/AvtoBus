@@ -1,0 +1,197 @@
+# ⚙️ AvtoBus — Ядро API (спецификация с кодом)
+
+> **Статус: Specification.** Это целевой публичный контракт `IBus`. Реализация из `docs/code/02-core-interfaces.md` обязана соответствовать сигнатурам отсюда, а не наоборот.
+
+## 1. Главные абстракции
+
+```csharp
+// Публикация и отправка
+public interface IBus
+{
+    ValueTask Publish<T>(T @event, PublishOptions? options = null, CancellationToken ct = default);
+    ValueTask Send<T>(T command, SendOptions? options = null, CancellationToken ct = default);
+    ValueTask<TReply> Request<T, TReply>(T request, TimeSpan? timeout = null, CancellationToken ct = default);
+    ValueTask Schedule<T>(T message, DateTimeOffset at, CancellationToken ct = default);
+}
+
+// Транспорт — минимальный контракт (по мотивам Watermill: 2 метода)
+public interface ITransport
+{
+    ValueTask SendAsync(Envelope envelope, TransportDestination dest, CancellationToken ct);
+    IAsyncEnumerable<TransportMessage> ReceiveAsync(TransportSubscription sub, CancellationToken ct);
+}
+
+// Middleware — «русская матрёшка», как в ASP.NET Core
+public interface IBusMiddleware
+{
+    ValueTask InvokeAsync(ConsumeContext context, BusDelegate next);
+}
+public delegate ValueTask BusDelegate(ConsumeContext context);
+```
+
+## 2. Стили хендлеров (3 уровня — на выбор)
+
+```csharp
+// Уровень 1: интерфейс (как Rebus/MassTransit) — явно и знакомо
+public sealed class OrderPlacedHandler : IConsumer<OrderPlaced>
+{
+    public async Task Consume(ConsumeContext<OrderPlaced> ctx)
+    {
+        await _email.SendReceipt(ctx.Message.OrderId);
+    }
+}
+
+// Уровень 2: метод-хендлер (как Wolverine) — минимум церемоний
+public static class ShippingHandlers
+{
+    // DI-параметры инжектятся, возврат — каскадная публикация
+    public static ShipmentCreated Handle(OrderPaid msg, IShipmentService svc)
+        => svc.CreateShipment(msg.OrderId);
+}
+
+// Уровень 3: лямбда (как EasyNetQ / Minimal API)
+bus.Subscribe<StockDepleted>(async (msg, sp) =>
+    await sp.GetRequiredService<IPurchasing>().Reorder(msg.Sku));
+```
+
+## 3. Конфигурация
+
+```csharp
+builder.Services.AddAvtoBus(bus =>
+{
+    // Транспорт
+    bus.UseRabbitMq(r =>
+    {
+        r.ConnectionString = cfg["Rabbit"];
+        r.PrefetchCount = 64;
+        r.UseQuorumQueues();
+    });
+
+    // Обнаружение хендлеров (компайл-тайм через Source Generator)
+    bus.AddConsumersFromAssembly(typeof(Program).Assembly);
+
+    // Надёжность
+    bus.UseOutbox<AppDbContext>(o => o.CleanupAfter(TimeSpan.FromDays(7)));
+    bus.UseInboxDeduplication(window: TimeSpan.FromHours(24));
+
+    // Recoverability (как NServiceBus)
+    bus.Recoverability(r =>
+    {
+        r.ImmediateRetries(3);
+        r.DelayedRetries(5, backoff: Backoff.Exponential(TimeSpan.FromSeconds(5)));
+        r.OnFailure(FailureAction.MoveToErrorQueue);
+        r.MapException<ValidationException>(FailureAction.Discard);
+    });
+
+    // Правила маршрутизации
+    bus.Routes(r =>
+    {
+        r.Command<PlaceOrder>().ToQueue("orders");
+        r.Events().FromNamespace("Contracts.Billing").ToTopic("billing");
+    });
+
+    // Пайплайн
+    bus.Pipeline(p =>
+    {
+        p.UseOpenTelemetry();
+        p.UseFluentValidation();
+        p.Use<TenantMiddleware>();
+    });
+});
+```
+
+## 4. ConsumeContext — всё под рукой
+
+```csharp
+public sealed class ConsumeContext
+{
+    public Envelope Envelope { get; }
+    public object Message { get; }
+    public IServiceProvider Services { get; }     // scoped
+    public CancellationToken CancellationToken { get; }
+    public int Attempt { get; }
+    public IDictionary<object, object> Items { get; }  // как HttpContext.Items
+
+    // Ответы и каскады
+    public ValueTask RespondAsync<T>(T reply);
+    public ValueTask PublishAsync<T>(T @event);        // уйдёт через outbox хендлера
+    public ValueTask DeferAsync(TimeSpan delay);       // отложить повтор
+    public void DeadLetter(string reason);
+}
+
+public sealed class ConsumeContext<T> : ConsumeContext where T : class
+{
+    public new T Message { get; }
+}
+```
+
+## 5. Каскадные сообщения (Wolverine-style)
+
+```csharp
+public static class PaymentHandlers
+{
+    // Возврат кортежа = публикация нескольких сообщений атомарно через outbox
+    public static (OrderPaid, ReceiptRequested) Handle(ProcessPayment cmd, IPaymentGateway gw)
+    {
+        var result = gw.Charge(cmd.OrderId, cmd.Amount);
+        return (new OrderPaid(cmd.OrderId), new ReceiptRequested(cmd.OrderId, result.TxId));
+    }
+
+    // OutgoingMessages — динамический набор + управление доставкой
+    public static OutgoingMessages Handle(InventoryChecked msg)
+    {
+        var outgoing = new OutgoingMessages();
+        if (msg.InStock)
+            outgoing.Send(new ReserveStock(msg.OrderId));
+        else
+            outgoing.Schedule(new RecheckInventory(msg.OrderId), TimeSpan.FromMinutes(10));
+        return outgoing;
+    }
+}
+```
+
+## 6. Что генерирует Source Generator
+
+Для каждого хендлера компилятор создаёт диспетчер без рефлексии:
+
+```csharp
+// <auto-generated/> AvtoBus.Generators
+file sealed class ProcessPayment_Dispatcher : IMessageDispatcher
+{
+    public string MessageType => "contracts.process-payment.v1";
+    public Type ClrType => typeof(ProcessPayment);
+
+    public async ValueTask DispatchAsync(ConsumeContext ctx)
+    {
+        var msg = (ProcessPayment)ctx.Message;
+        var gw = ctx.Services.GetRequiredService<IPaymentGateway>();
+        var (e1, e2) = PaymentHandlers.Handle(msg, gw);
+        await ctx.PublishAsync(e1);
+        await ctx.PublishAsync(e2);
+    }
+}
+```
+
+Диагностики на компиляции: `AVB001` — нет хендлера для отправляемой команды,
+`AVB002` — два хендлера на одну команду, `AVB003` — событие никто не слушает (warning).
+
+## 7. Request/Response
+
+```csharp
+// Клиент
+var quote = await bus.Request<GetQuote, QuoteResult>(new GetQuote("MSFT"), timeout: 5.Seconds());
+
+// Сервер — просто возвращаем ответ
+public static QuoteResult Handle(GetQuote q, IMarketData md) => md.Quote(q.Symbol);
+```
+
+## 8. Тест-харнесс (MassTransit-style)
+
+```csharp
+await using var harness = new AvtoBusTestHarness(services => { /* моки */ });
+await harness.Bus.Publish(new OrderPlaced(orderId));
+
+await harness.WaitForConsumed<OrderPlaced>();
+harness.Published.OfType<ReceiptRequested>().Should().ContainSingle();
+harness.DeadLettered.Should().BeEmpty();
+```

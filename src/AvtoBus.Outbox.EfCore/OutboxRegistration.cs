@@ -1,0 +1,35 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using AvtoBus.Configuration;
+
+namespace AvtoBus.Outbox.EfCore;
+
+/// <summary>
+/// Регистрация: одна строка <c>bus.UseOutbox&lt;AppDbContext&gt;()</c> включает transactional outbox,
+/// inbox-дедупликацию и авточистку (док 15, §8). Interceptor подключается пользователем к DbContext:
+/// <c>opt.UseNpgsql(cs).AddInterceptors(sp.GetRequiredService&lt;OutboxSaveChangesInterceptor&gt;())</c>.
+/// </summary>
+public static class OutboxRegistration
+{
+    public static BusConfigurator UseOutbox<TDb>(
+        this BusConfigurator bus, Action<OutboxOptions>? configure = null)
+        where TDb : DbContext
+    {
+        var opt = new OutboxOptions();
+        configure?.Invoke(opt);
+
+        bus.Services.AddSingleton(opt);
+        bus.Services.AddSingleton<IOutboxSignal, ChannelOutboxSignal>();
+        bus.Services.AddSingleton<OutboxSaveChangesInterceptor>();
+        bus.Services.AddSingleton<IEnvelopeSerializer, JsonEnvelopeSerializer>();
+        // Один инстанс на скоуп: и прямой доступ (IOutbox), и синк сессии (IOutboxSink) — один объект.
+        bus.Services.AddScoped<EfCoreOutbox<TDb>>();
+        bus.Services.AddScoped<IOutbox>(sp => sp.GetRequiredService<EfCoreOutbox<TDb>>());
+        bus.Services.AddScoped<IOutboxSink>(sp => sp.GetRequiredService<EfCoreOutbox<TDb>>());
+        bus.Services.AddHostedService<OutboxRelay>();
+        bus.Services.AddSingleton<AvtoBus.Observability.IOutboxPendingProvider>(sp =>
+            sp.GetRequiredService<OutboxRelay>());
+        bus.Services.AddHostedService<OutboxCleanup>();
+        return bus;
+    }
+}

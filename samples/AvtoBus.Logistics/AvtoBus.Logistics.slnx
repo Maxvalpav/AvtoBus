@@ -1,0 +1,40 @@
+<Solution>
+  <Folder Name="/contracts/">
+    <Project Path="Contracts/AvtoBus.Logistics.Contracts/AvtoBus.Logistics.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/services/">
+    <Project Path="services/Orders.Service/Orders.Service.csproj" />
+    <Project Path="services/Customers.Service/Customers.Service.csproj" />
+    <Project Path="services/Catalog.Service/Catalog.Service.csproj" />
+    <Project Path="services/Inventory.Service/Inventory.Service.csproj" />
+    <Project Path="services/Warehouses.Service/Warehouses.Service.csproj" />
+    <Project Path="services/Pricing.Service/Pricing.Service.csproj" />
+    <Project Path="services/Payments.Service/Payments.Service.csproj" />
+    <Project Path="services/Invoices.Service/Invoices.Service.csproj" />
+    <Project Path="services/Packing.Service/Packing.Service.csproj" />
+    <Project Path="services/Parcels.Service/Parcels.Service.csproj" />
+    <Project Path="services/Labels.Service/Labels.Service.csproj" />
+    <Project Path="services/Shipments.Service/Shipments.Service.csproj" />
+    <Project Path="services/Routing.Service/Routing.Service.csproj" />
+    <Project Path="services/Dispatch.Service/Dispatch.Service.csproj" />
+    <Project Path="services/Fleet.Service/Fleet.Service.csproj" />
+    <Project Path="services/Drivers.Service/Drivers.Service.csproj" />
+    <Project Path="services/Tracking.Service/Tracking.Service.csproj" />
+    <Project Path="services/Geofencing.Service/Geofencing.Service.csproj" />
+    <Project Path="services/Delivery.Service/Delivery.Service.csproj" />
+    <Project Path="services/ProofOfDelivery.Service/ProofOfDelivery.Service.csproj" />
+    <Project Path="services/Returns.Service/Returns.Service.csproj" />
+    <Project Path="services/Claims.Service/Claims.Service.csproj" />
+    <Project Path="services/Notifications.Service/Notifications.Service.csproj" />
+    <Project Path="services/Ratings.Service/Ratings.Service.csproj" />
+    <Project Path="services/Insurance.Service/Insurance.Service.csproj" />
+    <Project Path="services/Customs.Service/Customs.Service.csproj" />
+    <Project Path="services/Hubs.Service/Hubs.Service.csproj" />
+    <Project Path="services/Scheduling.Service/Scheduling.Service.csproj" />
+    <Project Path="services/Addresses.Service/Addresses.Service.csproj" />
+    <Project Path="services/Analytics.Service/Analytics.Service.csproj" />
+  </Folder>
+  <Folder Name="/runner/">
+    <Project Path="runner/AvtoBus.Logistics.Runner/AvtoBus.Logistics.Runner.csproj" />
+  </Folder>
+</Solution>

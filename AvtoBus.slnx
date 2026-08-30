@@ -1,0 +1,60 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AvtoBus.Abstractions/AvtoBus.Abstractions.csproj" />
+    <Project Path="src/AvtoBus/AvtoBus.csproj" />
+    <Project Path="src/AvtoBus.Core/AvtoBus.Core.csproj" />
+    <Project Path="src/AvtoBus.Generators/AvtoBus.Generators.csproj" />
+    <Project Path="src/AvtoBus.Analyzers/AvtoBus.Analyzers.csproj" />
+    <Project Path="src/AvtoBus.AsyncApi/AvtoBus.AsyncApi.csproj" />
+    <Project Path="src/AvtoBus.EventCatalog/AvtoBus.EventCatalog.csproj" />
+    <Project Path="src/AvtoBus.Cli/AvtoBus.Cli.csproj" />
+    <Project Path="src/AvtoBus.Aspire/AvtoBus.Aspire.csproj" />
+    <Project Path="src/AvtoBus.InMemory/AvtoBus.InMemory.csproj" />
+    <Project Path="src/AvtoBus.Outbox.EfCore/AvtoBus.Outbox.EfCore.csproj" />
+    <Project Path="src/AvtoBus.EventSourcing/AvtoBus.EventSourcing.csproj" />
+    <Project Path="src/AvtoBus.Scheduling/AvtoBus.Scheduling.csproj" />
+    <Project Path="src/AvtoBus.Security/AvtoBus.Security.csproj" />
+    <Project Path="src/AvtoBus.Multitenancy/AvtoBus.Multitenancy.csproj" />
+    <Project Path="src/AvtoBus.Dashboard/AvtoBus.Dashboard.csproj" />
+    <Project Path="src/AvtoBus.Kafka/AvtoBus.Kafka.csproj" />
+    <Project Path="src/AvtoBus.RabbitMq/AvtoBus.RabbitMq.csproj" />
+    <Project Path="src/AvtoBus.Nats/AvtoBus.Nats.csproj" />
+    <Project Path="src/AvtoBus.Redis/AvtoBus.Redis.csproj" />
+    <Project Path="src/AvtoBus.Sql/AvtoBus.Sql.csproj" />
+    <Project Path="src/AvtoBus.AzureServiceBus/AvtoBus.AzureServiceBus.csproj" />
+    <Project Path="src/AvtoBus.Serialization.MessagePack/AvtoBus.Serialization.MessagePack.csproj" />
+    <Project Path="src/AvtoBus.Serialization.Protobuf/AvtoBus.Serialization.Protobuf.csproj" />
+    <Project Path="src/AvtoBus.Sagas/AvtoBus.Sagas.csproj" />
+    <Project Path="src/AvtoBus.Testing/AvtoBus.Testing.csproj" />
+    <Project Path="src/AvtoBus.Templates/AvtoBus.Templates.csproj" />
+    <Project Path="src/AvtoBus.Workflow/AvtoBus.Workflow.csproj" />
+    <Project Path="src/AvtoBus.Streams/AvtoBus.Streams.csproj" />
+    <Project Path="src/AvtoBus.Durability.PostgreSql/AvtoBus.Durability.PostgreSql.csproj" />
+    <Project Path="src/AvtoBus.Bridge/AvtoBus.Bridge.csproj" />
+    <Project Path="src/AvtoBus.SchemaRegistry/AvtoBus.SchemaRegistry.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/AvtoBus.Benchmarks/AvtoBus.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/AvtoBus.QuickStart/AvtoBus.QuickStart.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AvtoBus.Tests/AvtoBus.Tests.csproj" />
+    <Project Path="tests/AvtoBus.GeneratorTests/AvtoBus.GeneratorTests.csproj" />
+    <Project Path="tests/AvtoBus.AnalyzerTests/AvtoBus.AnalyzerTests.csproj" />
+    <Project Path="tests/AvtoBus.AsyncApiTests/AvtoBus.AsyncApiTests.csproj" />
+    <Project Path="tests/AvtoBus.EventCatalogTests/AvtoBus.EventCatalogTests.csproj" />
+    <Project Path="tests/AvtoBus.CliTests/AvtoBus.CliTests.csproj" />
+    <Project Path="tests/AvtoBus.DashboardTests/AvtoBus.DashboardTests.csproj" />
+    <Project Path="tests/AvtoBus.AspireTests/AvtoBus.AspireTests.csproj" />
+    <Project Path="tests/AvtoBus.TemplateTests/AvtoBus.TemplateTests.csproj" />
+  </Folder>
+</Solution>
+
+
+
+
+
+
+

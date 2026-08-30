@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Derive version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Restore
+        # CI=true на restore, чтобы Microsoft.SourceLink.GitHub (добавляется только при
+        # ContinuousIntegrationBuild=true) попал в restore graph: иначе build --no-restore
+        # падает на свежем runner (NU1101).
+        run: dotnet restore AvtoBus.slnx /p:ContinuousIntegrationBuild=true
+
+      - name: Build
+        run: dotnet build AvtoBus.slnx -c Release --no-restore /p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test AvtoBus.slnx -c Release --no-build
+
+      - name: Pack libraries
+        # dotnet pack принимает ровно один проект за вызов (MSB1008 на этой версии SDK),
+        # поэтому перебираем проекты циклом.
+        run: |
+          for proj in \
+            src/AvtoBus.Core \
+            src/AvtoBus.InMemory \
+            src/AvtoBus.RabbitMq \
+            src/AvtoBus.Sql \
+            src/AvtoBus.Kafka \
+            src/AvtoBus.Nats \
+            src/AvtoBus.Redis \
+            src/AvtoBus.AzureServiceBus \
+            src/AvtoBus.Outbox.EfCore \
+            src/AvtoBus.Sagas \
+            src/AvtoBus.EventSourcing \
+            src/AvtoBus.Scheduling \
+            src/AvtoBus.Security \
+            src/AvtoBus.Multitenancy \
+            src/AvtoBus.Dashboard \
+            src/AvtoBus.AsyncApi \
+            src/AvtoBus.EventCatalog \
+            src/AvtoBus.Generators \
+            src/AvtoBus.Analyzers \
+            src/AvtoBus.Testing \
+            src/AvtoBus.Aspire \
+            src/AvtoBus.Templates \
+            src/AvtoBus ; do
+            dotnet pack "$proj" -c Release --no-build /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
+          done
+
+      - name: Pack CLI tool
+        run: >
+          dotnet pack src/AvtoBus.Cli -c Release --no-build
+          /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
+
+      - name: Push to NuGet
+        run: dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Push symbols (snupkg)
+        run: >
+          dotnet nuget push ./artifacts/*.snupkg
+          --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./artifacts/*
+          generate_release_notes: true
+          body_path: CHANGELOG.md

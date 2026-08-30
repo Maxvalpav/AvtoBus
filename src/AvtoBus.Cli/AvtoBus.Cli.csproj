@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ToolCommandName>avtobus</ToolCommandName>
+    <PackAsTool>true</PackAsTool>
+    <PackageId>AvtoBus.Cli</PackageId>
+    <Description>AvtoBus CLI: doctor, contracts, es explain, config, completion</Description>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>avtobus</AssemblyName>
+    <NoWarn>$(NoWarn);CA1849</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\AvtoBus.AsyncApi\AvtoBus.AsyncApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>

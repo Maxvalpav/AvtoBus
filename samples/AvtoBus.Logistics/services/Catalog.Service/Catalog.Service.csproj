@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <RootNamespace>Logistics.Catalog</RootNamespace>
+  </PropertyGroup>
+
+</Project>

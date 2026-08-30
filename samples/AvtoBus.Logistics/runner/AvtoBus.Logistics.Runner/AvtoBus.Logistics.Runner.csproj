@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <RootNamespace>Logistics.Runner</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\Contracts\AvtoBus.Logistics.Contracts\AvtoBus.Logistics.Contracts.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Orders.Service\Orders.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Customers.Service\Customers.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Catalog.Service\Catalog.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Inventory.Service\Inventory.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Warehouses.Service\Warehouses.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Pricing.Service\Pricing.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Payments.Service\Payments.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Invoices.Service\Invoices.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Packing.Service\Packing.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Parcels.Service\Parcels.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Labels.Service\Labels.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Shipments.Service\Shipments.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Routing.Service\Routing.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Dispatch.Service\Dispatch.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Fleet.Service\Fleet.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Drivers.Service\Drivers.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Tracking.Service\Tracking.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Geofencing.Service\Geofencing.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Delivery.Service\Delivery.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\ProofOfDelivery.Service\ProofOfDelivery.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Returns.Service\Returns.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Claims.Service\Claims.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Notifications.Service\Notifications.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Ratings.Service\Ratings.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Insurance.Service\Insurance.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Customs.Service\Customs.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Hubs.Service\Hubs.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Scheduling.Service\Scheduling.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Addresses.Service\Addresses.Service.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\services\Analytics.Service\Analytics.Service.csproj" />
+  </ItemGroup>
+
+</Project>

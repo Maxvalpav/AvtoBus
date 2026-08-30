@@ -1,0 +1,81 @@
+using AvtoBus.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace AvtoBus.Bridge;
+
+public sealed class TransportBridge : BackgroundService
+{
+    private readonly AvtoBus.Runtime.TransportRegistry _registry;
+    private readonly ILogger<TransportBridge> _log;
+    private readonly BridgeOptions _options;
+
+    public TransportBridge(AvtoBus.Runtime.TransportRegistry registry, ILogger<TransportBridge> log, BridgeOptions options)
+    {
+        _registry = registry;
+        _log = log;
+        _options = options;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        var tasks = _options.Rules.Select(r => BridgeLoop(r, ct));
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task BridgeLoop(BridgeRule rule, CancellationToken ct)
+    {
+        var source = _registry.Get(rule.SourceTransport);
+        var dest = _registry.Get(rule.DestinationTransport);
+        _log.LogInformation("[Bridge] {Source} -> {Dest} pattern={Pattern}", rule.SourceTransport, rule.DestinationTransport, rule.TopicPattern ?? "*");
+        var sub = new TransportSubscription(TransportDestination.Topic(rule.TopicPattern ?? "#"), ConsumerGroup: $"bridge-{rule.SourceTransport}-{rule.DestinationTransport}");
+        await foreach (var msg in source.ReceiveAsync(sub, ct))
+        {
+            if (rule.TopicPattern != null && !Matches(rule.TopicPattern, msg.Envelope.MessageType)) { await msg.AcknowledgeAsync(ct); continue; }
+            try
+            {
+                var destTopic = rule.DestinationTopic ?? msg.Envelope.MessageType;
+                await dest.SendAsync(msg.Envelope, TransportDestination.Topic(destTopic), ct);
+                await msg.AcknowledgeAsync(ct);
+                _log.LogDebug("[Bridge] forwarded {Type} {Id}", msg.Envelope.MessageType, msg.Envelope.MessageId);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "[Bridge] forward failed {Id}", msg.Envelope.MessageId);
+                await msg.RejectAsync(true, ct);
+            }
+        }
+    }
+
+    private static bool Matches(string pattern, string messageType)
+    {
+        if (pattern == "*" || pattern == "#") return true;
+        if (pattern.EndsWith("*")) return messageType.StartsWith(pattern[..^1], StringComparison.Ordinal);
+        return messageType == pattern;
+    }
+}
+
+public sealed class BridgeOptions
+{
+    public List<BridgeRule> Rules { get; } = [];
+    public BridgeOptions Map(string sourceTransport, string destTransport, string? topicPattern = null, string? destTopic = null)
+    {
+        Rules.Add(new BridgeRule(sourceTransport, destTransport, topicPattern, destTopic));
+        return this;
+    }
+}
+
+public sealed record BridgeRule(string SourceTransport, string DestinationTransport, string? TopicPattern, string? DestinationTopic);
+
+public static class BridgeBusExtensions
+{
+    public static BusConfigurator UseBridge(this BusConfigurator bus, Action<BridgeOptions> configure)
+    {
+        var opts = new BridgeOptions();
+        configure(opts);
+        bus.Services.AddSingleton(opts);
+        bus.Services.AddHostedService<TransportBridge>();
+        return bus;
+    }
+}

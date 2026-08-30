@@ -1,0 +1,59 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS1734</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>CS1591;CS1573;CS1574;CS1734;CS0618;NU5128;RS2008;RS1038;xUnit1051;CA2007</WarningsNotAsErrors>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package metadata">
+    <Authors>AvtoBus</Authors>
+    <Product>AvtoBus</Product>
+    <Description>AvtoBus - EDA framework for ASP.NET Core. ������ � �����.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <RepositoryUrl>https://github.com/avtobus/avtobus</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <PropertyGroup Label="MinVer">
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+    <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup Label="MinVer" Condition="'$(IsPackable)' == 'true' or '$(IsPackable)' == ''">
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup Label="SourceLink">
+    <!-- Символы и SourceLink включаются только в release-сборке CI
+         (ContinuousIntegrationBuild=true), чтобы локальные сборки оставались чистыми:
+         без git-remote локально SourceLink-таргеты дают предупреждения, а пустой
+         символьный пакет шаблонов даёт NU5017. Шаблоны в release не пакуются. -->
+    <ContinuousIntegrationBuild Condition="'$(ContinuousIntegrationBuild)' == ''">false</ContinuousIntegrationBuild>
+    <IncludeSymbols Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</IncludeSymbols>
+    <SymbolPackageFormat Condition="'$(ContinuousIntegrationBuild)' == 'true'">snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup Label="SourceLink" Condition="'$(ContinuousIntegrationBuild)' == 'true' AND ('$(IsPackable)' == 'true' or '$(IsPackable)' == '')">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Label="Package metadata" Condition="'$(IsPackable)' == 'true' or '$(IsPackable)' == ''">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

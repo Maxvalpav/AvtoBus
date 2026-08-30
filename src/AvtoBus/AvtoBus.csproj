@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>AvtoBus</PackageId>
+    <Description>AvtoBus — метапакет: Core + InMemory транспорт + JSON. Начни отсюда.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+  </ItemGroup>
+
+</Project>

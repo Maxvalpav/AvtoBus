@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.RabbitMq\AvtoBus.RabbitMq.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Outbox.EfCore\AvtoBus.Outbox.EfCore.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Dashboard\AvtoBus.Dashboard.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Generators\AvtoBus.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\AvtoBus.Analyzers\AvtoBus.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>

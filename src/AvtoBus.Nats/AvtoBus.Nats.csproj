@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>AvtoBus.Nats</PackageId>
+    <Description>NATS/JetStream transport for AvtoBus: durable pull consumers, subject-wildcard subscriptions, KV store (ideas 63-64).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvtoBus.Core\AvtoBus.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NATS.Net" />
+  </ItemGroup>
+
+</Project>

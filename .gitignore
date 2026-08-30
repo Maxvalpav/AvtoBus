@@ -1,0 +1,16 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+*.suo
+TestResults/
+artifacts/
+BenchmarkDotNet.Artifacts/
+publish/
+coverage/
+bench-pr/
+bench-base/
+*.nupkg
+*.snupkg
+*.trx

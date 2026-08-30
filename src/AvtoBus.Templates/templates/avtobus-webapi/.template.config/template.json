@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "AvtoBus",
+  "classifications": ["AvtoBus", "EDA", "Web", "Microservices"],
+  "identity": "AvtoBus.Templates.WebApi",
+  "name": "AvtoBus Web API",
+  "shortName": "avtobus-webapi",
+  "sourceName": "MyWebApi",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "symbols": {
+    "transport": {
+      "type": "parameter",
+      "datatype": "choice",
+      "choices": [
+        { "choice": "inmemory", "description": "In-memory транспорт (по умолчанию)" },
+        { "choice": "kafka", "description": "Kafka транспорт" },
+        { "choice": "redis", "description": "Redis Streams транспорт" }
+      ],
+      "defaultValue": "inmemory"
+    },
+    "includeConsumer": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "true",
+      "description": "Добавить пример консьюмера (Worker-файл)"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>AvtoBus.Logistics.Contracts</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+  </ItemGroup>
+
+</Project>

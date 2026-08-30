@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- Ближайший Directory.Build.props подменяет корневой (MSBuild берёт только первый найденный),
+       поэтому корневой импортируем явно: TargetFramework, LangVersion, Nullable и т.д. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\..\Directory.Build.props" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- AVB003: в демо события публикуются в топики без подписчиков (каскад идёт по командам) — ожидаемый шум, как в benchmarks. -->
+    <NoWarn>$(NoWarn);AVB003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Worker SDK добавляет implicit usings для Microsoft.Extensions.Hosting, но сборку нужно подключить явно (как в шаблоне). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\src\AvtoBus.Generators\AvtoBus.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\..\src\AvtoBus.Analyzers\AvtoBus.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\Contracts\AvtoBus.Logistics.Contracts\AvtoBus.Logistics.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
