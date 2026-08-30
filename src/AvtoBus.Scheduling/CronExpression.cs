@@ -77,6 +77,7 @@ public sealed class CronExpression
                 var split = part.Split('/');
                 range = split[0];
                 step = int.Parse(split[1]);
+                if (step <= 0) throw new FormatException($"Cron step must be >0 in '{part}'");
             }
 
             int from, to;
@@ -87,8 +88,16 @@ public sealed class CronExpression
                 var split = range.Split('-');
                 (from, to) = (int.Parse(split[0]), int.Parse(split[1]));
             }
+            else if (string.IsNullOrEmpty(range))
+            {
+                from = min;
+                to = max;
+            }
             else
-                from = to = int.Parse(range);
+            {
+                from = int.Parse(range);
+                to = part.Contains('/') ? max : from;
+            }
 
             for (var i = from; i <= to; i += step)
                 if (i >= min && i <= max)
@@ -123,8 +132,8 @@ public sealed class CronExpression
     {
         var local = TimeZoneInfo.ConvertTime(after, tz);
 
-        // Стартуем с целой секунды; если задана секундная точность — с неё.
-        var cursor = local.DateTime.AddSeconds(1);
+        // Стартуем со следующей целой секунды (отбрасываем мс/мкс).
+        var cursor = new DateTime(local.Year, local.Month, local.Day, local.Hour, local.Minute, local.Second, DateTimeKind.Unspecified).AddSeconds(1);
 
         var limit = local.DateTime.AddYears(2);
 

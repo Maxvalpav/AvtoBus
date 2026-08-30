@@ -26,30 +26,26 @@ public static class SecurityServiceCollectionExtensions
     {
         services.TryAddSingleton(TimeProvider.System);
 
-        services.AddSingleton(provider =>
+        var options = new SecurityOptions();
+        configure?.Invoke(options);
+
+        if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
         {
-            var options = new SecurityOptions();
-            configure?.Invoke(options);
+            // В разработке удобно, чтобы работало «из коробки» (детерминированный тестовый ключ).
+            // В проде должен быть задан явно — иначе подпись бессмысленна.
+            options.MasterSecret = "avtobus-development-only";
+        }
 
-            if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
-            {
-                // В разработке удобно, чтобы работало «из коробки» (детерминированный тестовый ключ).
-                options.MasterSecret = "avtobus-development-only";
-            }
+        services.AddSingleton(options);
+        services.AddSingleton(sp => new EnvelopeSecurity(sp.GetRequiredService<SecurityOptions>()));
 
-            var security = new EnvelopeSecurity(options);
-
-            // Ротация по расписанию менять ключи в рантайме (идея 452).
-            if (options.KeyRotationInterval is not null)
-                services.AddHostedService(sp =>
-                    new SecurityKeyRotationService(
-                        sp.GetRequiredService<TimeProvider>(),
-                        security,
-                        options.KeyRotationInterval.Value,
-                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SecurityKeyRotationService>>()));
-
-            return security;
-        });
+        if (options.KeyRotationInterval is not null)
+            services.AddHostedService(sp =>
+                new SecurityKeyRotationService(
+                    sp.GetRequiredService<TimeProvider>(),
+                    sp.GetRequiredService<EnvelopeSecurity>(),
+                    options.KeyRotationInterval.Value,
+                    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SecurityKeyRotationService>>()));
 
         return services;
     }
@@ -61,6 +57,9 @@ public static class SecurityServiceCollectionExtensions
     {
         var options = new SecurityOptions();
         configure(options);
+
+        if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
+            options.MasterSecret = "avtobus-development-only";
 
         var security = new EnvelopeSecurity(options);
 

@@ -14,7 +14,8 @@ public sealed class KeyRing
 {
     private readonly int _keepPrevious;
     private readonly SecurityOptions _options;
-    private readonly ConcurrentDictionary<int, SecurityKeys> _generations = new();
+    private readonly ConcurrentDictionary<long, SecurityKeys> _generations = new();
+    private readonly Lock _gate = new();
     private RotationState _current;
 
     public KeyRing(SecurityOptions options)
@@ -45,23 +46,26 @@ public sealed class KeyRing
             return;
 
         var next = Derive(_options, epoch);
-        OptionsEpoch = epoch;
-        _current = new RotationState(0, epoch, next);
-        _generations[(int)epoch] = next;
-
-        // Удаляем поколения старше порога.
-        if (_keepPrevious == 0)
+        lock (_gate)
         {
-            _generations.Clear();
-            _generations[(int)epoch] = next;
-            return;
-        }
+            if (epoch == OptionsEpoch) return;
+            OptionsEpoch = epoch;
+            _current = new RotationState(0, epoch, next);
+            _generations[epoch] = next;
 
-        var minKeep = epoch - _keepPrevious;
-        foreach (var generation in _generations.Keys.ToArray())
-        {
-            if (generation < minKeep)
-                _generations.TryRemove(generation, out _);
+            if (_keepPrevious == 0)
+            {
+                _generations.Clear();
+                _generations[epoch] = next;
+                return;
+            }
+
+            var minKeep = epoch - _keepPrevious;
+            foreach (var generation in _generations.Keys.ToArray())
+            {
+                if (generation < minKeep)
+                    _generations.TryRemove(generation, out _);
+            }
         }
     }
 

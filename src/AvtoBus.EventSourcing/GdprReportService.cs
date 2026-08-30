@@ -50,23 +50,36 @@ public sealed class GdprReportService : IGdprReportService
         var found = new List<SubjectEventOccurrence>();
         var forgotten = new List<SubjectEventOccurrence>();
 
-        await foreach (var stored in _store.ReadAllAsync(0, 1000, ct: ct))
+        long cursor = 0;
+        while (true)
         {
-            if (!_protection.TryGetSubjectId(stored.EventType, stored.Data, out var storedSubject))
-                continue;
+            var batch = new List<StoredEvent>();
+            await foreach (var stored in _store.ReadAllAsync(cursor, 1000, ct: ct))
+                batch.Add(stored);
 
-            if (!string.Equals(storedSubject, subjectId, StringComparison.Ordinal))
-                continue;
+            if (batch.Count == 0) break;
 
-            var occurrence = new SubjectEventOccurrence(
-                stored.EventType,
-                stored.GlobalSequence,
-                stored.StreamId,
-                stored.Version,
-                stored.Timestamp,
-                PiiReadable: !_keys.IsForgotten(subjectId));
+            foreach (var stored in batch)
+            {
+                if (!_protection.TryGetSubjectId(stored.EventType, stored.Data, out var storedSubject))
+                    continue;
 
-            (occurrence.PiiReadable ? found : forgotten).Add(occurrence);
+                if (!string.Equals(storedSubject, subjectId, StringComparison.Ordinal))
+                    continue;
+
+                var occurrence = new SubjectEventOccurrence(
+                    stored.EventType,
+                    stored.GlobalSequence,
+                    stored.StreamId,
+                    stored.Version,
+                    stored.Timestamp,
+                    PiiReadable: !_keys.IsForgotten(subjectId));
+
+                (occurrence.PiiReadable ? found : forgotten).Add(occurrence);
+            }
+
+            cursor = batch[^1].GlobalSequence;
+            if (batch.Count < 1000) break;
         }
 
         return new SubjectReport(subjectId, found, forgotten);

@@ -51,12 +51,12 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
 
         var now = _clock.GetUtcNow();
         var version = currentVersion;
-        var sequences = new List<long>(events.Count);
+        var entities = new List<EsEvent>(events.Count);
 
         foreach (var e in events)
         {
             version++;
-            var entity = new EsEvent
+            entities.Add(new EsEvent
             {
                 StreamId = streamId,
                 StreamType = streamType,
@@ -69,21 +69,24 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
                 CorrelationId = ParseGuid(e.Metadata.GetValueOrDefault("correlationId")),
                 CausationId = ParseGuid(e.Metadata.GetValueOrDefault("causationId")),
                 TenantId = e.Metadata.GetValueOrDefault("tenantId"),
-            };
-            db.Set<EsEvent>().Add(entity);
-
-            // global_seq генерируется БД; сохраняем нормально, а seq получим ниже.
-            try
-            {
-                await db.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
-            {
-                throw new ConcurrencyException(streamId, expectedVersion, currentVersion);
-            }
-
-            sequences.Add(entity.GlobalSequence);
+            });
         }
+
+        db.Set<EsEvent>().AddRange(entities);
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            await tx.RollbackAsync(ct);
+            throw new ConcurrencyException(streamId, expectedVersion, currentVersion);
+        }
+
+        var sequences = entities.Select(e => e.GlobalSequence).ToList();
 
         if (stream is null)
             db.Set<EsStream>().Add(new EsStream
@@ -264,8 +267,17 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
     private static Guid? ParseGuid(string? s) => Guid.TryParse(s, out var g) ? g : null;
 
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
-        => ex.InnerException is not null
-           && (ex.InnerException.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase)
-               || ex.InnerException.Message.Contains("unique", StringComparison.OrdinalIgnoreCase)
-               || ex.InnerException.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
+    {
+        var inner = ex.InnerException;
+        if (inner is null) return false;
+        if (inner.GetType().Name == "PostgresException")
+        {
+            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            if (sqlState == "23505") return true;
+        }
+        return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase)
+               || inner.Message.Contains("unique", StringComparison.OrdinalIgnoreCase)
+               || inner.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+               || inner.Message.Contains("23505", StringComparison.OrdinalIgnoreCase);
+    }
 }

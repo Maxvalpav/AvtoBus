@@ -37,9 +37,17 @@ internal static class EnvelopeSigner
     {
         var expected = ComputeSignature(envelope, key);
         var actual = envelope.Header(SignatureHeader);
-        return actual is not null && CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(actual),
-            Encoding.UTF8.GetBytes(expected));
+        if (actual is null) return false;
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Convert.FromBase64String(actual),
+                Convert.FromBase64String(expected));
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private static void AddField(HMACSHA256 hmac, ReadOnlySpan<byte> value)
