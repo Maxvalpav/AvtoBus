@@ -38,11 +38,12 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
 
         // Добавляем запись, но не сохраняем отдельно — сохранится вместе с бизнес-данными
         // в той же транзакции (один SaveChanges в конце обработки).
+        var timeProvider = ctx.Services.GetService<TimeProvider>() ?? TimeProvider.System;
         db.Set<InboxRecord>().Add(new InboxRecord
         {
             MessageId = ctx.Envelope.MessageId,
             ConsumerId = consumerId,
-            ProcessedAt = DateTime.UtcNow,
+            ProcessedAt = timeProvider.GetUtcNow().UtcDateTime,
         });
 
         try
@@ -62,6 +63,16 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
     }
 
     private static bool IsUniqueViolation(DbUpdateException ex)
-        => ex.InnerException?.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) == true
-           || ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true;
+    {
+        var inner = ex.InnerException;
+        if (inner is not null && inner.GetType().Name == "PostgresException")
+        {
+            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            if (sqlState == "23505") return true;
+        }
+
+        return inner?.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) == true
+               || inner?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true
+               || inner?.Message.Contains("23505", StringComparison.OrdinalIgnoreCase) == true;
+    }
 }

@@ -127,6 +127,12 @@ public sealed class MessageProcessor(
             return await ExecuteAsync(transportMessage, envelope, messageType, handlers, source, activity, ct)
                 .ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _inbox?.Forget(envelope.MessageId, consumerKey);
+            BusTelemetry.RecordDecision(Activity.Current, "canceled", "host shutdown");
+            return ProcessingDecision.Discard("canceled: host shutdown");
+        }
         catch (Exception exception)
         {
             _inbox?.Forget(envelope.MessageId, consumerKey);

@@ -47,7 +47,7 @@ public sealed class WasmMiddleware : IBusMiddleware
         if (transformed.Length != bodyBytes.Length || !transformed.SequenceEqual(bodyBytes))
         {
             context.Items["avtobus.wasm.transformed"] = true;
-            // stub: полная реализация пересоздает ConsumeContext с новым body
+            context.ReplaceEnvelope(context.Envelope with { Body = transformed });
         }
         await next(context);
     }

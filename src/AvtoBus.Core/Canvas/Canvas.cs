@@ -26,7 +26,11 @@ public sealed class CanvasChain
     {
         if (_steps.Count == 0) return;
         var first = _steps[0];
-        var remaining = _steps.Skip(1).Select(s => new CanvasStep(s.type.AssemblyQualifiedName!, s.message)).ToList();
+        var remaining = _steps.Skip(1).Select(s =>
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(s.message, s.type);
+            return new CanvasStep(s.type.AssemblyQualifiedName!, json);
+        }).ToList();
         var opts = new SendOptions();
         if (remaining.Count > 0)
             opts.WithHeader("avtobus.canvas.chain", System.Text.Json.JsonSerializer.Serialize(remaining));
@@ -170,8 +174,15 @@ public sealed class CanvasMiddleware : AvtoBus.Pipeline.IBusMiddleware
                             opts.WithHeader("avtobus.canvas.chain", System.Text.Json.JsonSerializer.Serialize(nextRemaining));
                         if (context.Envelope.Headers.TryGetValue("avtobus.canvas.chain-id", out var cid))
                             opts.WithHeader("avtobus.canvas.chain-id", cid);
-                        // десериализуем payload обратно в тип
-                        var payloadJson = System.Text.Json.JsonSerializer.Serialize(nextStep.Payload);
+                        // Payload хранится как JSON-строка (см. DispatchAsync), совместимость со старым форматом — JsonElement
+                        string payloadJson;
+                        if (nextStep.Payload is string s)
+                            payloadJson = s;
+                        else if (nextStep.Payload is System.Text.Json.JsonElement el)
+                            payloadJson = el.GetRawText();
+                        else
+                            payloadJson = System.Text.Json.JsonSerializer.Serialize(nextStep.Payload);
+
                         var payload = System.Text.Json.JsonSerializer.Deserialize(payloadJson, type);
                         if (payload is not null)
                         {
@@ -181,7 +192,11 @@ public sealed class CanvasMiddleware : AvtoBus.Pipeline.IBusMiddleware
                     }
                 }
             }
-            catch { /* chain — best effort, не ломаем обработку */ }
+            catch (Exception ex)
+            {
+                // Chain обрыв логируем, но не ломаем основную обработку
+                System.Diagnostics.Debug.WriteLine($"Canvas chain failed: {ex}");
+            }
         }
 
         // Chord: уведомляем store что один участник группы завершён

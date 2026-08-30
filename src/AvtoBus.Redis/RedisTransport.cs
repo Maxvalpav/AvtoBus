@@ -22,6 +22,7 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     private readonly ConnectionMultiplexer _redis;
     private readonly IDatabase _db;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _claimCursors = new(StringComparer.Ordinal);
     private int _disposed;
 
     public RedisTransport(RedisOptions options)
@@ -120,16 +121,22 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     {
         try
         {
+            var cursorKey = $"{stream}:{group}";
+            var startAtId = _claimCursors.GetOrAdd(cursorKey, "0-0");
             var result = await _db.StreamAutoClaimIdsOnlyAsync(
                 stream,
                 group,
                 consumerName,
                 minIdleTimeInMs: _options.MinIdleTimeMs,
-                startAtId: "0-0",
+                startAtId: startAtId,
                 count: _options.BatchSize).ConfigureAwait(false);
 
             if (result.ClaimedIds.Length == 0)
                 return Array.Empty<StreamEntry>();
+
+            // Продвигаем курсор, чтобы следующий скан продолжил с последнего ID (O(1) вместо O(N)).
+            if (result.ClaimedIds.Length > 0)
+                _claimCursors[cursorKey] = result.ClaimedIds[^1].ToString();
 
             return await _db.StreamClaimAsync(
                 stream,

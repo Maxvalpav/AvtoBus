@@ -209,9 +209,9 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
 
     private static string SubjectName(TransportDestination destination) => destination.Name;
 
-    /// <summary>Имя JetStream стрима: NATS не любит точки в имени, но subject может содержать их.</summary>
+    /// <summary>Имя JetStream стрима: точки/дефисы недопустимы в имени, "_" экранируем чтобы избежать коллизий.</summary>
     private static string StreamName(TransportDestination destination)
-        => "AVB_" + destination.Name.Replace('.', '_').Replace('-', '_');
+        => "AVB_" + destination.Name.Replace("_", "__").Replace(".", "_dot_").Replace("-", "_dash_");
 
     public void Dispose()
     {

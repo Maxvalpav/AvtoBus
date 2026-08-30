@@ -458,7 +458,7 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
         }
 
         /// <summary>Регистрирует ожидание подтверждения до публикации и возвращает задачу ожидания.</summary>
-        public Task WaitForConfirmationAsync(ulong sequence, TimeSpan timeout, CancellationToken ct)
+        public async Task WaitForConfirmationAsync(ulong sequence, TimeSpan timeout, CancellationToken ct)
         {
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             lock (_gate)
@@ -475,7 +475,20 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(timeout);
-            return tcs.Task.WaitAsync(timeoutCts.Token);
+            try
+            {
+                await tcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                lock (_gate) _pending.Remove(sequence);
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                lock (_gate) _pending.Remove(sequence);
+                throw;
+            }
         }
 
         /// <summary>Снимает ожидание, если публикация упала до отправки (подтверждение уже не придёт).</summary>

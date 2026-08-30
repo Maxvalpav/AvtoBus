@@ -207,8 +207,9 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
 
     private static TimeSpan? TimeToLiveOf(Type messageType)
     {
-        if (messageType.GetCustomAttributes(typeof(MessageAttribute), false) is [MessageAttribute { Ttl: { } ttl }])
-            return TimeSpan.Parse(ttl);
+        if (messageType.GetCustomAttributes(typeof(MessageAttribute), false) is [MessageAttribute { Ttl: { } ttl }]
+            && TimeSpan.TryParse(ttl, out var parsed))
+            return parsed;
 
         return null;
     }
@@ -237,16 +238,16 @@ internal static class PartitionKeyAccessor
             return null;
 
         var instance = System.Linq.Expressions.Expression.Parameter(typeof(object), "message");
-        var body = System.Linq.Expressions.Expression.Call(
-            System.Linq.Expressions.Expression.Convert(
-                System.Linq.Expressions.Expression.Property(
-                    System.Linq.Expressions.Expression.Convert(instance, t),
-                    property),
-                typeof(object)),
-            typeof(object).GetMethod(nameof(ToString))!);
+        var converted = System.Linq.Expressions.Expression.Convert(instance, t);
+        var prop = System.Linq.Expressions.Expression.Property(converted, property);
+        var propAsObject = System.Linq.Expressions.Expression.Convert(prop, typeof(object));
+        var nullCheck = System.Linq.Expressions.Expression.Condition(
+            System.Linq.Expressions.Expression.Equal(prop, System.Linq.Expressions.Expression.Constant(null, property.PropertyType)),
+            System.Linq.Expressions.Expression.Constant(null, typeof(string)),
+            System.Linq.Expressions.Expression.Call(propAsObject, typeof(object).GetMethod(nameof(ToString))!));
 
         return System.Linq.Expressions.Expression
-            .Lambda<Func<object, string?>>(body, instance)
+            .Lambda<Func<object, string?>>(nullCheck, instance)
             .Compile();
     });
 }

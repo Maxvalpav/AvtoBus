@@ -22,7 +22,8 @@ public sealed class OutboxCleanup : BackgroundService
         {
             await using var scope = _scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<DbContext>();
-            var cutoff = DateTime.UtcNow - _opt.CleanupAfter;
+            var timeProvider = scope.ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
+            var cutoff = timeProvider.GetUtcNow().UtcDateTime - _opt.CleanupAfter;
 
             await DeleteExpiredAsync(db, cutoff, stop).ConfigureAwait(false);
 

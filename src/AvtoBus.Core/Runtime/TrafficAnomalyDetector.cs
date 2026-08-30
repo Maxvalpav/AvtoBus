@@ -131,7 +131,7 @@ public sealed class TrafficAnomalyMiddleware(TrafficAnomalyDetector detector) : 
 {
     public ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
     {
-        detector.Record(context.Message.GetType().Name);
+        detector.Record(context.Envelope.MessageType);
         return next(context);
     }
 }

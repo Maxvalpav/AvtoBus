@@ -26,9 +26,15 @@ public class ConsumeContext
         CancellationToken = cancellationToken;
     }
 
-    public Envelope Envelope { get; }
+    public Envelope Envelope { get; private set; }
 
-    public object Message { get; }
+    public object Message { get; private set; }
+
+    internal void ReplaceEnvelope(Envelope envelope, object? message = null)
+    {
+        Envelope = envelope;
+        if (message is not null) Message = message;
+    }
 
     /// <summary>Scoped-провайдер: один скоуп на сообщение (идея 14).</summary>
     public IServiceProvider Services { get; }

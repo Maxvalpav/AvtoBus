@@ -89,8 +89,7 @@ public sealed class PipelineBuilder
         finally
         {
             stopwatch.Stop();
-            // Контекст может быть null только в unit-тестах пайплайна без реального сообщения.
-            var messageType = context?.Message?.GetType().Name ?? "?";
+            var messageType = context?.Envelope.MessageType ?? context?.Message?.GetType().Name ?? "?";
             BusTelemetry.RecordPipelineStep(stepName, messageType, stopwatch.Elapsed.TotalMilliseconds);
         }
     }

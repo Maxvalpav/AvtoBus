@@ -12,6 +12,7 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
 {
     private readonly ConcurrentDictionary<(Guid, string), DateTimeOffset> _seen = new();
     private DateTimeOffset _lastSweep;
+    private readonly Lock _sweepGate = new();
 
     /// <summary>
     /// Отмечает сообщение обработанным. <c>false</c> означает «уже видели» — дубликат.
@@ -35,12 +36,18 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
         if (now - _lastSweep < window)
             return;
 
-        _lastSweep = now;
-
-        foreach (var (key, seenAt) in _seen)
+        lock (_sweepGate)
         {
-            if (now - seenAt >= window)
-                _seen.TryRemove(key, out _);
+            if (now - _lastSweep < window)
+                return;
+
+            _lastSweep = now;
+
+            foreach (var (key, seenAt) in _seen)
+            {
+                if (now - seenAt >= window)
+                    _seen.TryRemove(key, out _);
+            }
         }
     }
 }

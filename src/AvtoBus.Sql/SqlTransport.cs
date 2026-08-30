@@ -21,6 +21,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 {
     private readonly SqlOptions _options;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _ensuredTopicTables = new(StringComparer.Ordinal);
     private int _disposed;
 
     public SqlTransport(SqlOptions options) => _options = options;
@@ -164,11 +165,12 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         if (result.Count > 0)
         {
             // Помечаем как доставленные, чтобы другой консьюмер не подхватил.
-            var ids = string.Join(",", result.Select(r => r.Id));
+            var ids = result.Select(r => r.Id).ToArray();
             await using var claim = new NpgsqlCommand(
-                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id IN ({ids})",
+                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id = ANY(@ids)",
                 connection, transaction);
             claim.Parameters.AddWithValue("consumer", consumerName);
+            claim.Parameters.AddWithValue("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Bigint, ids);
             await claim.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
@@ -185,18 +187,26 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     {
         var metaTable = _options.TablePrefix + "topic_meta";
 
+        var ensuredKey = $"{groupTable}|{metaTable}";
+        var needEnsure = !_ensuredTopicTables.ContainsKey(ensuredKey);
+
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
 
-        await using (var ensureGroup = new NpgsqlCommand(
-                         $"CREATE TABLE IF NOT EXISTS {groupTable} (id BIGSERIAL PRIMARY KEY, envelope BYTEA NOT NULL, visible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), claimed_at TIMESTAMPTZ, claimed_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
-                         connection, transaction))
-            await ensureGroup.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (needEnsure)
+        {
+            await using (var ensureGroup = new NpgsqlCommand(
+                              $"CREATE TABLE IF NOT EXISTS {groupTable} (id BIGSERIAL PRIMARY KEY, envelope BYTEA NOT NULL, visible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), claimed_at TIMESTAMPTZ, claimed_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+                              connection, transaction))
+                await ensureGroup.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
-        await using (var ensureMeta = new NpgsqlCommand(
-                         $"CREATE TABLE IF NOT EXISTS {metaTable} (topic TEXT NOT NULL, grp TEXT NOT NULL, last_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (topic, grp))",
-                         connection, transaction))
-            await ensureMeta.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await using (var ensureMeta = new NpgsqlCommand(
+                              $"CREATE TABLE IF NOT EXISTS {metaTable} (topic TEXT NOT NULL, grp TEXT NOT NULL, last_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (topic, grp))",
+                              connection, transaction))
+                await ensureMeta.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+            _ensuredTopicTables.TryAdd(ensuredKey, 1);
+        }
 
         // Гарантируем строку меты и блокируем её для группы.
         await using (var insertMeta = new NpgsqlCommand(
@@ -249,20 +259,25 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private void TrackLag(string table, CancellationToken ct)
     {
-        try
+        // Не блокируем путь обработки: метрика собирается best-effort на пуле.
+        _ = Task.Run(async () =>
         {
-            var reclaim = DateTime.UtcNow - _options.ReclaimTimeout;
-            using var connection = Open();
-            using var count = new NpgsqlCommand(
-                $"SELECT COUNT(*) FROM {table} WHERE visible_at <= NOW() AND (claimed_at IS NULL OR claimed_at < @reclaim)",
-                connection);
-            count.Parameters.AddWithValue("reclaim", reclaim);
-            _consumerLags[table] = Convert.ToInt64(count.ExecuteScalar());
-        }
-        catch
-        {
-            // Метрика — наблюдательная; сбой не должен ломать обработку.
-        }
+            try
+            {
+                var reclaim = DateTime.UtcNow - _options.ReclaimTimeout;
+                await using var connection = await OpenAsync(CancellationToken.None).ConfigureAwait(false);
+                await using var count = new NpgsqlCommand(
+                    $"SELECT COUNT(*) FROM {table} WHERE visible_at <= NOW() AND (claimed_at IS NULL OR claimed_at < @reclaim)",
+                    connection);
+                count.Parameters.AddWithValue("reclaim", reclaim);
+                var value = await count.ExecuteScalarAsync(CancellationToken.None).ConfigureAwait(false);
+                _consumerLags[table] = Convert.ToInt64(value);
+            }
+            catch
+            {
+                // Метрика — наблюдательная; сбой не должен ломать обработку.
+            }
+        }, CancellationToken.None);
     }
 
     // ── Topology ──
