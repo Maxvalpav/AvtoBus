@@ -88,37 +88,48 @@ public sealed class TrafficAnomalyDetector
         private readonly Queue<long> _history = new();
         private DateTimeOffset _windowStarted;
         private long _current;
+        private readonly Lock _gate = new();
 
-        public long Current => _current;
+        public long Current
+        {
+            get { lock (_gate) return _current; }
+        }
 
-        public double Baseline => _history.Count > 0 ? _history.Average() : 0;
+        public double Baseline
+        {
+            get { lock (_gate) return _history.Count > 0 ? _history.Average() : 0; }
+        }
 
         public void Record(TrafficAnomalyDetector owner, string messageType)
         {
             var now = owner._time.GetUtcNow();
+            long completed = 0;
+            double baseline = 0;
+            bool windowClosed = false;
 
-            // Окно завершилось: завершённый интервал сравниваем со средним предыдущих,
-            // затем счётчик уходит в историю и база пересчитывается.
-            if (_windowStarted != default && now - _windowStarted >= owner._window)
+            lock (_gate)
             {
-                var completed = _current;
-                _current = 0;
-                _windowStarted = now;
+                if (_windowStarted != default && now - _windowStarted >= owner._window)
+                {
+                    completed = _current;
+                    _current = 0;
+                    _windowStarted = now;
+                    baseline = _history.Count > 0 ? _history.Average() : 0;
+                    if (_history.Count >= owner._historySlots)
+                        _history.Dequeue();
+                    _history.Enqueue(completed);
+                    windowClosed = baseline > 0;
+                }
+                else if (_windowStarted == default)
+                {
+                    _windowStarted = now;
+                }
 
-                var baseline = Baseline;
-                if (baseline > 0)
-                    owner.Evaluate(messageType, completed, baseline);
-
-                if (_history.Count >= owner._historySlots)
-                    _history.Dequeue();
-                _history.Enqueue(completed);
+                _current++;
             }
-            else if (_windowStarted == default)
-            {
-                _windowStarted = now;
-            }
 
-            _current++;
+            if (windowClosed)
+                owner.Evaluate(messageType, completed, baseline);
         }
     }
 }

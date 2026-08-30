@@ -56,7 +56,7 @@ public sealed class TailSamplingMiddleware(TailSampler sampler) : AvtoBus.Pipeli
 {
     public async ValueTask InvokeAsync(ConsumeContext ctx, AvtoBus.Pipeline.BusDelegate next)
     {
-        await next(ctx);
+        await next(ctx).ConfigureAwait(false);
         sampler.Apply(ctx);
         // OTel: если не sampled — активность можно дропнуть, но в SDK это делает Sampler. Здесь только тег.
         if (!sampler.ShouldSample(ctx))

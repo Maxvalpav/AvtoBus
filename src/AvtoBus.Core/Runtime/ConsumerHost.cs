@@ -247,7 +247,7 @@ public sealed class ConsumerRunner(
     MessageProcessor processor,
     BusOptions options,
     TimeProvider time,
-    ILogger logger)
+    ILogger logger) : IAsyncDisposable
 {
     private readonly CircuitBreaker _breaker = new(
         options.CircuitBreakerThreshold,
@@ -531,13 +531,20 @@ public sealed class ConsumerRunner(
             }
         }
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        _receiveCts.Dispose();
+        _inFlight.Dispose();
+        if (_router is not null) await _router.DisposeAsync().ConfigureAwait(false);
+    }
 }
 
 /// <summary>
 /// Раскладывает сообщения по партициям-каналам: один ключ — всегда один канал,
 /// поэтому порядок в рамках ключа сохраняется при параллельной обработке разных ключей (идея 25).
 /// </summary>
-internal sealed class PartitionRouter
+internal sealed class PartitionRouter : IAsyncDisposable
 {
     private readonly Channel<(ITransportMessage Message, Func<ITransportMessage, CancellationToken, Task> Handler)>[] _partitions;
     private readonly Task[] _workers;
@@ -597,4 +604,6 @@ internal sealed class PartitionRouter
 
         await Task.WhenAll(_workers).WaitAsync(ct).ConfigureAwait(false);
     }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

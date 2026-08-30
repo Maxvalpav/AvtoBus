@@ -20,16 +20,25 @@ public sealed class ToxiproxyOptions
 public sealed class ToxiproxyTransport(ITransport inner, ToxiproxyOptions opts) : ITransport
 {
     public string Name => inner.Name + "+toxic";
-    public ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
+    public async ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
     {
         if (opts.Latency > TimeSpan.Zero) Thread.Sleep(opts.Latency);
         if (opts.DownProbability > 0 && Random.Shared.NextDouble() < opts.DownProbability)
             throw new IOException("Toxiproxy down toxic");
-        if (opts.Timeout > TimeSpan.Zero) ct = new CancellationTokenSource(opts.Timeout).Token;
-        var task = inner.SendAsync(envelope, destination, ct);
+        if (opts.Timeout > TimeSpan.Zero)
+        {
+            using var timeoutCts = new CancellationTokenSource(opts.Timeout);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            var task = inner.SendAsync(envelope, destination, linked.Token);
+            if (opts.DuplicateProbability > 0 && Random.Shared.NextDouble() < opts.DuplicateProbability)
+                _ = inner.SendAsync(envelope, destination, CancellationToken.None);
+            await task.ConfigureAwait(false);
+            return;
+        }
+        var sendTask = inner.SendAsync(envelope, destination, ct);
         if (opts.DuplicateProbability > 0 && Random.Shared.NextDouble() < opts.DuplicateProbability)
             _ = inner.SendAsync(envelope, destination, CancellationToken.None);
-        return task;
+        await sendTask.ConfigureAwait(false);
     }
     public IAsyncEnumerable<ITransportMessage> ReceiveAsync(TransportSubscription sub, CancellationToken ct = default) => inner.ReceiveAsync(sub, ct);
     public ValueTask ProvisionAsync(IReadOnlyCollection<TransportDestination> d, CancellationToken ct = default) => inner.ProvisionAsync(d, ct);

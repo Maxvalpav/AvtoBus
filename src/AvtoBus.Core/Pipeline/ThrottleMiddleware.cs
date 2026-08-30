@@ -47,10 +47,10 @@ public sealed class ThrottleMiddleware : IBusMiddleware
         }
         if (defer.HasValue)
         {
-            await context.DeferAsync(defer.Value);
+            await context.DeferAsync(defer.Value).ConfigureAwait(false);
             return; // не вызываем next — back-pressure (как Watermill Throttle)
         }
-        await next(context);
+        await next(context).ConfigureAwait(false);
     }
 }
 
