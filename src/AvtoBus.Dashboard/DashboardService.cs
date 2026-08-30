@@ -1,6 +1,7 @@
 using AvtoBus.Configuration;
 using AvtoBus.Observability;
 using AvtoBus.Runtime;
+using Microsoft.AspNetCore.Http;
 
 namespace AvtoBus.Dashboard;
 
@@ -38,7 +39,9 @@ public sealed class DashboardService(
         var queues = new List<DashboardQueue>();
         var totalPending = 0;
         var dlqCount = 0;
-        var runnerCounts = consumerHost.Runners.GroupBy(r => r.Name).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        // Snapshot runners to avoid concurrent modification
+        var runnersSnapshot = consumerHost.Runners.ToArray();
+        var runnerCounts = runnersSnapshot.GroupBy(r => r.Name).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
         foreach (var provider in depthProviders)
         {
@@ -59,7 +62,7 @@ public sealed class DashboardService(
         return new DashboardOverview(
             Mode: options.IsProduction ? "production" : "development",
             TotalPending: totalPending,
-            ConsumerCount: consumerHost.Runners.Count,
+            ConsumerCount: runnersSnapshot.Length,
             DlqCount: dlqCount,
             Queues: queues);
     }
@@ -119,5 +122,16 @@ public sealed class DashboardService(
             throw new DashboardAccessDeniedException(
                 $"Dangerous action '{action}' is disabled in production (idea 482). " +
                 $"User '{user}' is not allowed. Set AllowDangerousOperationsInProduction explicitly.");
+    }
+
+    public static bool TryHandleAccessDenied(Exception ex, out Microsoft.AspNetCore.Http.IResult? result)
+    {
+        if (ex is DashboardAccessDeniedException denied)
+        {
+            result = Results.Problem(detail: denied.Message, statusCode: StatusCodes.Status403Forbidden, title: "Forbidden");
+            return true;
+        }
+        result = null;
+        return false;
     }
 }

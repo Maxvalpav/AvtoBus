@@ -9,16 +9,9 @@ public static class DurableInvokeExtensions
 {
     public static async Task<TOut> InvokeChildAsync<TIn, TOut>(this IWorkflowContext ctx, string workflowType, TIn input, CancellationToken ct = default)
     {
-        // 1. Старт child workflow (история parent)
-        var childId = $"{workflowType}:{ctx.NewGuid():N}";
-        await ctx.CreateTimer(TimeSpan.Zero, ct); // checkpoint
-        // 2. Ждем результат child как WaitForEvent `child:completed:{childId}` — child шлет Signal при завершении
-        // Стаб: эмулируем через Activity
-        return await ctx.ExecuteActivityAsync(async () =>
-        {
-            await Task.Delay(10, ct);
-            return default(TOut)!;
-        });
+        // Child invocation not yet fully implemented — throw to avoid silent incorrect behavior.
+        // Parent should use ctx.ExecuteActivityAsync with explicit compensation instead.
+        throw new NotImplementedException($"DurableInvoke.InvokeChildAsync<{typeof(TIn).Name},{typeof(TOut).Name}> not implemented: workflow '{workflowType}' child invocation requires workflow runner integration. Use ExecuteActivityAsync as workaround.");
     }
 
     public static Task<TOut> InvokeChildAsync<TOut>(this IWorkflowContext ctx, AvtoWorkflow<object, TOut> workflow, object input, CancellationToken ct = default)

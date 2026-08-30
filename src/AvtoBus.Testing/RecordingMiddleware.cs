@@ -46,10 +46,10 @@ public sealed class BusRecorder
 
     public void Clear()
     {
-        _consumed.Clear();
-        _published.Clear();
-        _faults.Clear();
-        _deadLettered.Clear();
+        while (_consumed.TryDequeue(out _)) { }
+        while (_published.TryDequeue(out _)) { }
+        while (_faults.TryDequeue(out _)) { }
+        while (_deadLettered.TryDequeue(out _)) { }
     }
 }
 
@@ -64,7 +64,11 @@ public sealed class RecordingMiddleware(BusRecorder recorder, FaultInjector faul
 {
     public async ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
     {
-        recorder.RecordConsumed(context.Message, context.Envelope);
+        if (faults.DelayOf(context.Message.GetType()) is { } delay && delay > TimeSpan.Zero)
+        {
+            await Task.Delay(delay, context.CancellationToken).ConfigureAwait(false);
+            faults.ClearDelay(context.Message.GetType());
+        }
 
         if (faults.ShouldFail(context.Message.GetType(), out var exception))
         {
@@ -72,12 +76,10 @@ public sealed class RecordingMiddleware(BusRecorder recorder, FaultInjector faul
             throw exception;
         }
 
-        if (faults.DelayOf(context.Message.GetType()) is { } delay && delay > TimeSpan.Zero)
-            await Task.Delay(delay, context.CancellationToken).ConfigureAwait(false);
-
         try
         {
             await next(context).ConfigureAwait(false);
+            recorder.RecordConsumed(context.Message, context.Envelope);
         }
         catch (Exception thrown)
         {
@@ -143,6 +145,8 @@ public sealed class FaultInjector
 
     internal TimeSpan? DelayOf(Type messageType)
         => _delays.TryGetValue(messageType, out var delay) ? delay : null;
+
+    internal void ClearDelay(Type messageType) => _delays.TryRemove(messageType, out _);
 
     private sealed class FaultPlan(int times, Exception exception)
     {

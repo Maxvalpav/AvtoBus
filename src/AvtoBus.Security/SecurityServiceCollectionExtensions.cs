@@ -29,11 +29,13 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure?.Invoke(options);
 
-        var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") is "Development" or null;
+        var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
         {
             if (!isDevelopment && options.RequireSignature)
                 throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured when RequireSignature is enabled outside Development.");
+            if (!isDevelopment)
+                throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured outside Development. Set MasterSecret or call UseKeys/UseGeneratedKeys.");
             options.MasterSecret = "avtobus-development-only";
         }
 
@@ -59,11 +61,13 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure(options);
 
-        var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") is "Development" or null;
+        var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
         {
             if (!isDev && options.RequireSignature)
                 throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured when RequireSignature is enabled outside Development.");
+            if (!isDev)
+                throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured outside Development.");
             options.MasterSecret = "avtobus-development-only";
         }
 

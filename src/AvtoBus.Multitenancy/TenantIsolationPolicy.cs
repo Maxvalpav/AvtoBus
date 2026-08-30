@@ -19,15 +19,24 @@ public sealed class TenantIsolationPolicy(TenantRegistry registry) : ITenantIsol
 
     public TransportDestination Isolate(TransportDestination destination, string tenantId)
     {
+        var safe = SanitizeTenantId(tenantId);
         return registry.IsolationOf(tenantId) switch
         {
             TenantIsolation.QueuePerTenant =>
-                destination with { Name = $"{destination.Name}.{tenantId}" },
+                destination with { Name = $"{destination.Name}.{safe}" },
 
             TenantIsolation.NamespacePerTenant =>
-                destination with { Name = $"{tenantId}.{destination.Name}" },
+                destination with { Name = $"{safe}.{destination.Name}" },
 
             _ => destination,
         };
+    }
+
+    private static string SanitizeTenantId(string tenantId)
+    {
+        var sb = new System.Text.StringBuilder(tenantId.Length);
+        foreach (var ch in tenantId)
+            sb.Append(char.IsLetterOrDigit(ch) || ch == '-' || ch == '_' ? ch : '_');
+        return sb.Length == 0 ? "unknown" : sb.ToString();
     }
 }

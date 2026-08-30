@@ -26,7 +26,9 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
                 $"Тип {type.Name} не является Google.Protobuf IMessage. Контракты для protobuf " +
                 "генерируются из .proto-файлов (protoc / Grpc.Tools).");
 
-        writer.Write(proto.ToByteArray());
+        // Write via byte array (CodedOutputStream requires byte[] in this version)
+        var bytes = proto.ToByteArray();
+        writer.Write(bytes);
     }
 
     public object? Deserialize(ReadOnlyMemory<byte> body, Type type)
@@ -42,8 +44,9 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
             return InvokeParse(parser, body);
 
         // Фолбэк: самописный IMessage — создаём экземпляр и мерджим байты.
-        var instance = (IMessage)Activator.CreateInstance(type)!;
-        instance.MergeFrom(body.ToArray());
+        if (Activator.CreateInstance(type) is not IMessage instance)
+            throw new NotSupportedException($"Тип {type.Name} не имеет публичного конструктора без параметров");
+        instance.MergeFrom(new Google.Protobuf.CodedInputStream(body.ToArray()));
         return instance;
     }
 
@@ -63,15 +66,17 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
 
     private static object? InvokeParse(object parser, ReadOnlyMemory<byte> body)
     {
-        var type = parser.GetType();
-        // try cache first
+        // Direct lookup: parser type is unique per message type, find cache entry by parser reference
         foreach (var kv in ParserCache)
         {
             if (ReferenceEquals(kv.Value.Parser, parser))
                 return kv.Value.ParseMethod.Invoke(parser, [body.ToArray()]);
         }
-        var parse = type.GetMethod("ParseFrom", [typeof(byte[])])
-                     ?? throw new NotSupportedException($"Parser типа {type.Name} не имеет ParseFrom(byte[]).");
+        // Fallback: resolve via parser's declaring type
+        var parserType = parser.GetType();
+        var parse = parserType.GetMethod("ParseFrom", [typeof(byte[])])
+                     ?? parserType.GetMethod("ParseFrom", [typeof(Google.Protobuf.CodedInputStream)])
+                     ?? throw new NotSupportedException($"Parser типа {parserType.Name} не имеет ParseFrom.");
         return parse.Invoke(parser, [body.ToArray()]);
     }
 }

@@ -14,11 +14,15 @@ public interface IKmsProvider
 
 public sealed class InMemoryKmsProvider : IKmsProvider
 {
-    private readonly Dictionary<string, List<byte[]>> _keys = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<byte[]>> _keys = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
     public void AddKey(string keyId, byte[] key)
     {
-        if (!_keys.ContainsKey(keyId)) _keys[keyId] = new List<byte[]>();
-        _keys[keyId].Add(key);
+        lock (_gate)
+        {
+            var list = _keys.GetOrAdd(keyId, _ => new List<byte[]>());
+            lock (list) list.Add(key);
+        }
     }
     public Task<byte[]> GetCurrentKeyAsync(string keyId, CancellationToken ct)
         => _keys.TryGetValue(keyId, out var list) && list.Count > 0

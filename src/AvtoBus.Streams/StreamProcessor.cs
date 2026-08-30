@@ -17,7 +17,7 @@ public sealed class InMemoryStateStore<TKey, TValue> : IStateStore<TKey, TValue>
     public ValueTask PutAsync(TKey key, TValue value, CancellationToken ct) { _dict[key] = value; return ValueTask.CompletedTask; }
     public ValueTask DeleteAsync(TKey key, CancellationToken ct) { _dict.TryRemove(key, out _); return ValueTask.CompletedTask; }
     public async IAsyncEnumerable<KeyValuePair<TKey, TValue>> ScanAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-    { foreach (var kv in _dict) { ct.ThrowIfCancellationRequested(); yield return kv; } await Task.CompletedTask; }
+    { var snapshot = _dict.ToArray(); foreach (var kv in snapshot) { ct.ThrowIfCancellationRequested(); yield return kv; } await Task.CompletedTask; }
 }
 
 public sealed class StatefulProcessor<TIn, TState, TOut>(
@@ -66,9 +66,10 @@ public sealed class WindowedAggregate<TValue>(
 {
     public TimeSpan WindowSize => windowSize;
 
-    public IReadOnlyList<StreamRecord<string, TValue>> Aggregate(IReadOnlyList<StreamRecord<string, TValue>> window)
+    public IReadOnlyList<StreamRecord<string, TValue>> Aggregate(IReadOnlyList<StreamRecord<string, TValue>> window, DateTimeOffset? eventTimeNow = null)
     {
-        var cutoff = DateTimeOffset.UtcNow - windowSize;
+        var now = eventTimeNow ?? window.MaxBy(r => r.Timestamp)?.Timestamp ?? DateTimeOffset.UtcNow;
+        var cutoff = now - windowSize;
         var filtered = window.Where(r => r.Timestamp >= cutoff).ToList();
         var grouped = filtered.GroupBy(r => r.Key);
         var result = new List<StreamRecord<string, TValue>>();
@@ -76,7 +77,7 @@ public sealed class WindowedAggregate<TValue>(
         {
             var values = g.Select(r => r.Value).ToList();
             var agg = aggregate(values);
-            result.Add(new StreamRecord<string, TValue>(g.Key, agg, DateTimeOffset.UtcNow));
+            result.Add(new StreamRecord<string, TValue>(g.Key, agg, now));
         }
         return result;
     }

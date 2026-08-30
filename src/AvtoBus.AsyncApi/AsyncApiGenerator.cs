@@ -101,13 +101,14 @@ public sealed class AsyncApiGenerator
         foreach (var type in MessageTypes)
         {
             var (channelName, kind) = RouteOf(type);
+            var safeChannel = SanitizeRef(channelName);
 
             operations[$"{ActionOf(kind)}_{SanitizeRef(MessageKey(type))}"] = new Dictionary<string, object>
             {
                 ["action"] = ActionOf(kind),
                 ["channel"] = new Dictionary<string, object>
                 {
-                    ["$ref"] = $"#/channels/{channelName}",
+                    ["$ref"] = $"#/channels/{safeChannel}",
                 },
                 ["summary"] = $"{(kind is DestinationKind.Queue ? "Consumes command" : "Consumes event")} {type.Name}",
                 ["messages"] = new List<object>

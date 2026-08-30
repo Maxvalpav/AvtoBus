@@ -83,12 +83,17 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
             {
                 try
                 {
+                    var plain = BodyEncryptor.Decrypt(envelope.Body.Span, keys.EncryptionKey, nonce);
+                    // Strip nonce header after successful decrypt to avoid header leak
+                    var strippedHeaders = envelope.Headers.Where(kv => kv.Key != BodyEncryptor.NonceHeader)
+                        .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
                     return envelope with
                     {
-                        Body = BodyEncryptor.Decrypt(envelope.Body.Span, keys.EncryptionKey, nonce),
+                        Body = plain,
+                        Headers = System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(strippedHeaders, StringComparer.Ordinal),
                     };
                 }
-                catch (CryptographicException)
+                catch (Exception ex) when (ex is CryptographicException or ArgumentException)
                 {
                     // try next generation
                 }
@@ -107,6 +112,7 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 /// </summary>
 internal sealed class RateLimiter(int permitsPerSecond)
 {
+    private readonly object _sync = new();
     private int _counter;
     private long _windowStartTicks;
 
@@ -116,7 +122,7 @@ internal sealed class RateLimiter(int permitsPerSecond)
             return;
 
         long waitMs = 0;
-        lock (this)
+        lock (_sync)
         {
             var nowTicks = Environment.TickCount64;
             if (nowTicks - _windowStartTicks >= 1000)
@@ -141,7 +147,7 @@ internal sealed class RateLimiter(int permitsPerSecond)
             return ValueTask.CompletedTask;
 
         long waitMs = 0;
-        lock (this)
+        lock (_sync)
         {
             var nowTicks = Environment.TickCount64;
             if (nowTicks - _windowStartTicks >= 1000)

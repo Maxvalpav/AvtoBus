@@ -42,21 +42,14 @@ public sealed class TenantRateLimitMiddleware(TenantRegistry registry, TimeProvi
             return;
         }
 
-        // Defer with bounded retry count to avoid infinite loop
-        var deferCount = TryGetDeferCount(context.Envelope);
-        if (deferCount >= 10)
+        // Defer with bounded retry count using DeliveryAttempt (requeue increments it)
+        if (context.Envelope.DeliveryAttempt >= 10)
         {
-            context.DeadLetter($"Tenant {tenantId} over quota after {deferCount} deferrals");
+            context.DeadLetter($"Tenant {tenantId} over quota after {context.Envelope.DeliveryAttempt} deferrals");
             return;
         }
 
         await context.DeferAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-    }
-
-    private static int TryGetDeferCount(Envelope envelope)
-    {
-        var v = envelope.Header("avtobus-tenant-defer-count");
-        return int.TryParse(v, out var c) ? c : 0;
     }
 
     private TenantRateLimiter GetOrCreate(string tenantId, int rate)

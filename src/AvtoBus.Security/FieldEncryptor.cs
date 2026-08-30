@@ -50,17 +50,25 @@ public static class FieldEncryptor
     private static string DecryptString(string cipher, ReadOnlySpan<byte> key)
     {
         var parts = cipher.Split(':', 3);
-        if (parts.Length != 3) return cipher;
-        var nonce = Convert.FromBase64String(parts[1]);
-        var payload = Convert.FromBase64String(parts[2]);
-        var plain = BodyEncryptor.Decrypt(payload, key, nonce);
-        return System.Text.Encoding.UTF8.GetString(plain.Span);
+        if (parts.Length != 3) throw new SecurityViolationException($"Malformed encrypted field: {cipher}");
+        byte[] nonce, payload;
+        try { nonce = Convert.FromBase64String(parts[1]); } catch (FormatException ex) { throw new SecurityViolationException("Invalid nonce", ex); }
+        try { payload = Convert.FromBase64String(parts[2]); } catch (FormatException ex) { throw new SecurityViolationException("Invalid payload", ex); }
+        try
+        {
+            var plain = BodyEncryptor.Decrypt(payload, key, nonce);
+            return System.Text.Encoding.UTF8.GetString(plain.Span);
+        }
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+        {
+            throw new SecurityViolationException("Field decryption failed", ex);
+        }
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo[]> Cache = new();
 
     private static IEnumerable<PropertyInfo> GetEncryptedProperties(Type type)
         => Cache.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-               .Where(p => p.CanRead && p.CanWrite && p.GetCustomAttribute<EncryptedAttribute>() is not null && p.PropertyType == typeof(string))
+               .Where(p => p.CanRead && p.CanWrite && p.GetCustomAttribute<EncryptedAttribute>(inherit: true) is not null && p.PropertyType == typeof(string))
                .ToArray());
 }

@@ -1,5 +1,6 @@
 using AvtoBus.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AvtoBus.Security;
 
@@ -29,11 +30,12 @@ public sealed class RegoEvaluator : IOpaEvaluator
 
     public bool IsAllowed(ConsumeContext ctx, string policy)
     {
-        if (string.IsNullOrWhiteSpace(policy) || policy.Contains("allow { true }", StringComparison.Ordinal)) return true;
-        if (policy.Contains("deny", StringComparison.Ordinal))
-            return false;
+        if (string.IsNullOrWhiteSpace(policy)) return true;
+        var trimmed = policy.Trim();
+        if (trimmed == "allow { true }" || trimmed.Contains("allow { true }", StringComparison.Ordinal) && trimmed.Length < 30)
+            return true;
 
-        // Стаб: реальный путь — `opa eval` через `OPA WASM` или `Rego.NET`.
+        // Check explicit tenant/role rules before generic deny
         if (policy.Contains("input.tenant", StringComparison.Ordinal))
         {
             var m = TenantRegex.Match(policy);
@@ -44,23 +46,27 @@ public sealed class RegoEvaluator : IOpaEvaluator
             var m = RoleRegex.Match(policy);
             if (m.Success) return ctx.Principal?.IsInRole(m.Groups[1].Value) == true;
         }
+        if (policy.TrimStart().StartsWith("deny", StringComparison.OrdinalIgnoreCase))
+            return false;
         // Fail closed by default — unknown policy denies
         return false;
     }
 }
 
-public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions opts) : AvtoBus.Pipeline.IBusMiddleware
+public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions opts, Microsoft.Extensions.Logging.ILogger<OpaAuthorizationMiddleware>? logger = null) : AvtoBus.Pipeline.IBusMiddleware
 {
     public ValueTask InvokeAsync(ConsumeContext context, AvtoBus.Pipeline.BusDelegate next)
     {
         var allowed = eval.IsAllowed(context, opts.Policy);
-        if (!allowed && opts.FailClosed)
+        if (!allowed)
         {
-            context.DeadLetter($"OPA deny: {opts.Policy}");
+            logger?.LogWarning("OPA deny {Policy} for {MessageType} {MessageId}", opts.Policy, context.Envelope.MessageType, context.Envelope.MessageId);
+            if (opts.FailClosed)
+                context.DeadLetter($"OPA deny: {opts.Policy}");
+            else
+                context.DeadLetter($"OPA deny (audit): {opts.Policy}");
             return ValueTask.CompletedTask;
         }
-        if (!allowed)
-            return ValueTask.CompletedTask;
 
         return next(context);
     }

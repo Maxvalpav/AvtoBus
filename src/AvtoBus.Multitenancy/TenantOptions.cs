@@ -34,6 +34,8 @@ public sealed class TenantOptions
     /// <summary>Добавляет тенанта. Регион и квоты подхватываются по имени.</summary>
     public TenantOptions AddTenant(string tenantId, Action<TenantRegistration>? configure = null)
     {
+        if (Tenants.ContainsKey(tenantId))
+            throw new InvalidOperationException($"Tenant '{tenantId}' already registered");
         var registration = new TenantRegistration { TenantId = tenantId };
         configure?.Invoke(registration);
         Tenants[tenantId] = registration;

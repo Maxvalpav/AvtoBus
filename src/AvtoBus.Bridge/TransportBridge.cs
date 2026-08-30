@@ -53,7 +53,13 @@ public sealed class TransportBridge : BackgroundService
         var sub = new TransportSubscription(TransportDestination.Topic(rule.TopicPattern ?? "#"), ConsumerGroup: $"bridge-{rule.SourceTransport}-{rule.DestinationTransport}");
         await foreach (var msg in source.ReceiveAsync(sub, ct))
         {
-            if (rule.TopicPattern != null && !Matches(rule.TopicPattern, msg.Envelope.MessageType)) { await msg.AcknowledgeAsync(ct); continue; }
+            if (rule.TopicPattern != null && !Matches(rule.TopicPattern, msg.Envelope.MessageType))
+            {
+                // Filter mismatch: ack and skip (intentionally filtered, not lost)
+                _log.LogDebug("[Bridge] skip {Type} not matching {Pattern}", msg.Envelope.MessageType, rule.TopicPattern);
+                await msg.AcknowledgeAsync(ct);
+                continue;
+            }
             try
             {
                 var destTopic = rule.DestinationTopic ?? msg.Envelope.MessageType;
@@ -63,8 +69,17 @@ public sealed class TransportBridge : BackgroundService
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "[Bridge] forward failed {Id}", msg.Envelope.MessageId);
-                await msg.RejectAsync(true, ct);
+                _log.LogError(ex, "[Bridge] forward failed {Id} attempt {Attempt}", msg.Envelope.MessageId, msg.Envelope.DeliveryAttempt);
+                if (msg.Envelope.DeliveryAttempt >= 10)
+                {
+                    await msg.RejectAsync(false, ct);
+                    _log.LogWarning("[Bridge] poison {Id} dead-lettered after 10 attempts", msg.Envelope.MessageId);
+                }
+                else
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, Math.Min(msg.Envelope.DeliveryAttempt, 5))), ct).ConfigureAwait(false);
+                    await msg.RejectAsync(true, ct);
+                }
             }
         }
     }
@@ -79,10 +94,11 @@ public sealed class TransportBridge : BackgroundService
 
 public sealed class BridgeOptions
 {
-    public List<BridgeRule> Rules { get; } = [];
+    private readonly List<BridgeRule> _rules = [];
+    public IReadOnlyList<BridgeRule> Rules => _rules;
     public BridgeOptions Map(string sourceTransport, string destTransport, string? topicPattern = null, string? destTopic = null)
     {
-        Rules.Add(new BridgeRule(sourceTransport, destTransport, topicPattern, destTopic));
+        _rules.Add(new BridgeRule(sourceTransport, destTransport, topicPattern, destTopic));
         return this;
     }
 }

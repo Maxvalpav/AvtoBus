@@ -31,6 +31,7 @@ public sealed class KeyRing
         OptionsEpoch = initialEpoch;
         _current = new RotationState(0, initialEpoch, initial);
         _generations[initialEpoch] = initial;
+        RefreshSnapshot();
     }
 
     /// <summary>Текущая эпоха, из которой выводится актуальный ключ.</summary>
@@ -68,14 +69,27 @@ public sealed class KeyRing
                 if (generation < minKeep)
                     _generations.TryRemove(generation, out _);
             }
+            RefreshSnapshot();
         }
+    }
+
+    private volatile KeyValuePair<long, SecurityKeys>[] _sortedSnapshot = [];
+
+    private void RefreshSnapshot()
+    {
+        var snapshot = _generations.ToArray();
+        Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        _sortedSnapshot = snapshot;
     }
 
     public bool TryVerify(Envelope envelope, Func<Envelope, ReadOnlySpan<byte>, bool> verify, out long verifiedByEpoch)
     {
-        // Snapshot sorted keys to avoid LINQ allocation per verify
-        var snapshot = _generations.ToArray();
-        Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        var snapshot = _sortedSnapshot.Length == _generations.Count ? _sortedSnapshot : _generations.ToArray();
+        if (snapshot.Length != _generations.Count || _sortedSnapshot.Length == 0)
+        {
+            snapshot = _generations.ToArray();
+            Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        }
         foreach (var (epoch, keys) in snapshot)
         {
             if (verify(envelope, keys.SigningKey))
@@ -91,8 +105,12 @@ public sealed class KeyRing
 
     public IEnumerable<SecurityKeys> AllGenerationsOrderedDesc()
     {
-        var snapshot = _generations.ToArray();
-        Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        var snapshot = _sortedSnapshot.Length == _generations.Count ? _sortedSnapshot : _generations.ToArray();
+        if (snapshot.Length != _generations.Count || _sortedSnapshot.Length == 0)
+        {
+            snapshot = _generations.ToArray();
+            Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        }
         foreach (var (_, keys) in snapshot)
             yield return keys;
     }
