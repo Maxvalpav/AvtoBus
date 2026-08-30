@@ -65,7 +65,7 @@ internal static class Emitters
         };
 
         if (h.IsAsync && h.ReturnKind is ReturnKind.Void)
-            body = $"await System.Threading.Tasks.Task.CompletedTask;\n            {call};";
+            body = $"{call};";
 
         var handlerResolution = isInstance
             ? $"var __handler = ctx.Services.GetRequiredService<{h.ContainingType}>();\n            "

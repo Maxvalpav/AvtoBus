@@ -20,21 +20,15 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
     public async ValueTask InvokeAsync(ConsumeContext ctx, BusDelegate next)
     {
         var consumerId = ctx.Envelope.Header("consumer") ?? _consumerId;
-        var db = ctx.Services.GetService<DbContext>();
+        // Try resolve any DbContext subtype via IServiceProvider — generic TryFind
+        var db = ctx.Services.GetServices<DbContext>().FirstOrDefault()
+                 ?? ctx.Services.GetService(typeof(DbContext)) as DbContext;
 
-        // Без EF — дедупликация только в памяти (через InboxDeduplication), здесь пропускаем.
         if (db is null)
         {
             await next(ctx).ConfigureAwait(false);
             return;
         }
-
-        // Быстрая проверка до выполнения хендлера — избегаем повторной работы.
-        var exists = await db.Set<InboxRecord>()
-            .AnyAsync(r => r.MessageId == ctx.Envelope.MessageId && r.ConsumerId == consumerId, ctx.CancellationToken)
-            .ConfigureAwait(false);
-        if (exists)
-            return;
 
         // Добавляем запись, но не сохраняем отдельно — сохранится вместе с бизнес-данными
         // в той же транзакции (один SaveChanges в конце обработки).

@@ -9,10 +9,10 @@ public static class CompressionHelper
 
     public static ReadOnlyMemory<byte> Compress(ReadOnlyMemory<byte> body, CompressionOptions opts)
     {
-        using var src = new MemoryStream(body.ToArray());
+        // Avoid extra ToArray: use Span-based copy via underlying buffer
         using var dst = new MemoryStream();
         using (var gz = new GZipStream(dst, opts.Level, leaveOpen: true))
-            src.CopyTo(gz);
+            gz.Write(body.Span);
         return dst.ToArray();
     }
 
@@ -23,5 +23,15 @@ public static class CompressionHelper
         using var dst = new MemoryStream();
         gz.CopyTo(dst);
         return dst.ToArray();
+    }
+
+    public static void Compress(IBufferWriter<byte> writer, ReadOnlyMemory<byte> body, CompressionOptions opts)
+    {
+        // Zero-copy variant: compress directly into IBufferWriter
+        using var ms = new MemoryStream();
+        using (var gz = new GZipStream(ms, opts.Level, leaveOpen: true))
+            gz.Write(body.Span);
+        var compressed = ms.ToArray();
+        writer.Write(compressed);
     }
 }

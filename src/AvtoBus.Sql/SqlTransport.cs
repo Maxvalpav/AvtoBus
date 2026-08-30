@@ -20,11 +20,18 @@ namespace AvtoBus.Sql;
 public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 {
     private readonly SqlOptions _options;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _ensuredTopicTables = new(StringComparer.Ordinal);
+    private DateTimeOffset _lastLagCheck = DateTimeOffset.MinValue;
     private int _disposed;
 
-    public SqlTransport(SqlOptions options) => _options = options;
+    public SqlTransport(SqlOptions options)
+    {
+        _options = options;
+        var builder = new NpgsqlDataSourceBuilder(options.ConnectionString);
+        _dataSource = builder.Build();
+    }
 
     public string Name => "sql";
 
@@ -110,8 +117,14 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
             if (claimed.Count == 0)
             {
-                // Ждём NOTIFY или таймаут — не спамим опросами (идея 67).
-                await listenConnection.WaitAsync(ct).WaitAsync(_options.ListenTimeout, ct).ConfigureAwait(false);
+                try
+                {
+                    await listenConnection.WaitAsync(ct).WaitAsync(_options.ListenTimeout, ct).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    // ListenTimeout истёк — обычный полл-цикл, не ошибка.
+                }
                 continue;
             }
 
@@ -167,7 +180,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
             // Помечаем как доставленные, чтобы другой консьюмер не подхватил.
             var ids = result.Select(r => r.Id).ToArray();
             await using var claim = new NpgsqlCommand(
-                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id = ANY(@ids)",
+                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id = ANY(@ids) AND claimed_at IS NULL",
                 connection, transaction);
             claim.Parameters.AddWithValue("consumer", consumerName);
             claim.Parameters.AddWithValue("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Bigint, ids);
@@ -190,23 +203,24 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         var ensuredKey = $"{groupTable}|{metaTable}";
         var needEnsure = !_ensuredTopicTables.ContainsKey(ensuredKey);
 
-        await using var connection = await OpenAsync(ct).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-
         if (needEnsure)
         {
+            await using var ensureConn = await OpenAsync(ct).ConfigureAwait(false);
             await using (var ensureGroup = new NpgsqlCommand(
                               $"CREATE TABLE IF NOT EXISTS {groupTable} (id BIGSERIAL PRIMARY KEY, envelope BYTEA NOT NULL, visible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), claimed_at TIMESTAMPTZ, claimed_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
-                              connection, transaction))
+                              ensureConn))
                 await ensureGroup.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
             await using (var ensureMeta = new NpgsqlCommand(
                               $"CREATE TABLE IF NOT EXISTS {metaTable} (topic TEXT NOT NULL, grp TEXT NOT NULL, last_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (topic, grp))",
-                              connection, transaction))
+                              ensureConn))
                 await ensureMeta.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
             _ensuredTopicTables.TryAdd(ensuredKey, 1);
         }
+
+        await using var connection = await OpenAsync(ct).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         // Гарантируем строку меты и блокируем её для группы.
         await using (var insertMeta = new NpgsqlCommand(
@@ -259,7 +273,10 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private void TrackLag(string table, CancellationToken ct)
     {
-        // Не блокируем путь обработки: метрика собирается best-effort на пуле.
+        if (DateTimeOffset.UtcNow - _lastLagCheck < TimeSpan.FromSeconds(5))
+            return;
+        _lastLagCheck = DateTimeOffset.UtcNow;
+
         _ = Task.Run(async () =>
         {
             try
@@ -275,7 +292,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
             }
             catch
             {
-                // Метрика — наблюдательная; сбой не должен ломать обработку.
+                // Метрика — наблюдательная.
             }
         }, CancellationToken.None);
     }
@@ -328,15 +345,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private async ValueTask<NpgsqlConnection> OpenAsync(CancellationToken ct)
     {
-        var connection = new NpgsqlConnection(_options.ConnectionString);
-        await connection.OpenAsync(ct).ConfigureAwait(false);
-        return connection;
-    }
-
-    private NpgsqlConnection Open()
-    {
-        var connection = new NpgsqlConnection(_options.ConnectionString);
-        connection.Open();
+        var connection = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
         return connection;
     }
 
@@ -375,7 +384,9 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     public void Dispose()
     {
-        Interlocked.Exchange(ref _disposed, 1);
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+        _dataSource.Dispose();
     }
 
     /// <summary>ITransport : IAsyncDisposable — соединения короткоживущие, синхронного Dispose достаточно.</summary>

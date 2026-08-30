@@ -23,12 +23,14 @@ public sealed class KeyRing
         _options = options;
         _keepPrevious = Math.Max(0, options.KeepPreviousKeyGenerations);
 
+        var initialEpoch = EpochOf(DateTimeOffset.UtcNow, options.KeyRotationInterval);
         var initial = _options.Keys.SigningKey.Length > 0
             ? _options.Keys
-            : Derive(options, EpochOf(DateTimeOffset.UtcNow, options.KeyRotationInterval));
+            : Derive(options, initialEpoch);
 
-        _current = new RotationState(0, OptionsEpoch, initial);
-        _generations[0] = initial;
+        OptionsEpoch = initialEpoch;
+        _current = new RotationState(0, initialEpoch, initial);
+        _generations[initialEpoch] = initial;
     }
 
     /// <summary>Текущая эпоха, из которой выводится актуальный ключ.</summary>
@@ -71,7 +73,10 @@ public sealed class KeyRing
 
     public bool TryVerify(Envelope envelope, Func<Envelope, ReadOnlySpan<byte>, bool> verify, out long verifiedByEpoch)
     {
-        foreach (var (epoch, keys) in _generations.OrderByDescending(pair => pair.Key))
+        // Snapshot sorted keys to avoid LINQ allocation per verify
+        var snapshot = _generations.ToArray();
+        Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        foreach (var (epoch, keys) in snapshot)
         {
             if (verify(envelope, keys.SigningKey))
             {
@@ -82,6 +87,14 @@ public sealed class KeyRing
 
         verifiedByEpoch = -1;
         return false;
+    }
+
+    public IEnumerable<SecurityKeys> AllGenerationsOrderedDesc()
+    {
+        var snapshot = _generations.ToArray();
+        Array.Sort(snapshot, (a, b) => b.Key.CompareTo(a.Key));
+        foreach (var (_, keys) in snapshot)
+            yield return keys;
     }
 
     private static long EpochOf(DateTimeOffset now, TimeSpan? interval)

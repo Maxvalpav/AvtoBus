@@ -21,22 +21,31 @@ public interface IOpaEvaluator
 
 public sealed class RegoEvaluator : IOpaEvaluator
 {
+    private static readonly System.Text.RegularExpressions.Regex TenantRegex =
+        new(@"input\.tenant\s*==\s*""([^""]+)""", System.Text.RegularExpressions.RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly System.Text.RegularExpressions.Regex RoleRegex =
+        new(@"principal\.role\s*==\s*""([^""]+)""", System.Text.RegularExpressions.RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
     public bool IsAllowed(ConsumeContext ctx, string policy)
     {
-        if (string.IsNullOrWhiteSpace(policy) || policy.Contains("allow { true }")) return true;
-        if (policy.Contains("deny")) return false;
-        // Стаб: реальный путь — `opa eval` через `OPA WASM` или `Rego.NET`. Парсим `input.tenant == "eu"` по Headers
-        if (policy.Contains("input.tenant"))
+        if (string.IsNullOrWhiteSpace(policy) || policy.Contains("allow { true }", StringComparison.Ordinal)) return true;
+        if (policy.Contains("deny", StringComparison.Ordinal))
+            return false;
+
+        // Стаб: реальный путь — `opa eval` через `OPA WASM` или `Rego.NET`.
+        if (policy.Contains("input.tenant", StringComparison.Ordinal))
         {
-            var m = System.Text.RegularExpressions.Regex.Match(policy, @"input\.tenant\s*==\s*""([^""]+)""");
+            var m = TenantRegex.Match(policy);
             if (m.Success) return ctx.Envelope.TenantId == m.Groups[1].Value;
         }
-        if (policy.Contains("principal.role"))
+        if (policy.Contains("principal.role", StringComparison.Ordinal))
         {
-            var m = System.Text.RegularExpressions.Regex.Match(policy, @"principal\.role\s*==\s*""([^""]+)""");
+            var m = RoleRegex.Match(policy);
             if (m.Success) return ctx.Principal?.IsInRole(m.Groups[1].Value) == true;
         }
-        return true;
+        // Fail closed by default — unknown policy denies
+        return false;
     }
 }
 
@@ -44,10 +53,15 @@ public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions op
 {
     public ValueTask InvokeAsync(ConsumeContext context, AvtoBus.Pipeline.BusDelegate next)
     {
-        if (!eval.IsAllowed(context, opts.Policy))
+        var allowed = eval.IsAllowed(context, opts.Policy);
+        if (!allowed && opts.FailClosed)
         {
-            if (opts.FailClosed) { context.DeadLetter($"OPA deny: {opts.Policy}"); return ValueTask.CompletedTask; }
+            context.DeadLetter($"OPA deny: {opts.Policy}");
+            return ValueTask.CompletedTask;
         }
+        if (!allowed)
+            return ValueTask.CompletedTask;
+
         return next(context);
     }
 }

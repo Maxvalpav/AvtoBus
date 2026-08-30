@@ -25,10 +25,24 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     private readonly ConcurrentDictionary<string, string> _claimCursors = new(StringComparer.Ordinal);
     private int _disposed;
 
+    // Sync ctor kept for backward compat; async factory available via CreateAsync
     public RedisTransport(RedisOptions options)
     {
         _options = options;
         _redis = ConnectionMultiplexer.Connect(options.Configuration);
+        _db = _redis.GetDatabase();
+    }
+
+    public static async Task<RedisTransport> CreateAsync(RedisOptions options, CancellationToken ct = default)
+    {
+        var redis = await ConnectionMultiplexer.ConnectAsync(options.Configuration).ConfigureAwait(false);
+        return new RedisTransport(redis, options);
+    }
+
+    private RedisTransport(ConnectionMultiplexer redis, RedisOptions options)
+    {
+        _options = options;
+        _redis = redis;
         _db = _redis.GetDatabase();
     }
 
@@ -95,9 +109,16 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
                     position: ">",
                     count: _options.BatchSize).ConfigureAwait(false);
             }
-            catch (RedisException)
+            catch (RedisTimeoutException)
             {
-                await Task.Delay(100, ct).ConfigureAwait(false);
+                await Task.Delay(200, ct).ConfigureAwait(false);
+                continue;
+            }
+            catch (RedisException ex) when (ex.Message.Contains("NOGROUP", StringComparison.Ordinal))
+            {
+                try { await _db.StreamCreateConsumerGroupAsync(stream, group, position: 0, createStream: true).ConfigureAwait(false); }
+                catch { }
+                await Task.Delay(200, ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -116,14 +137,23 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         }
     }
 
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastReclaimAt = new(StringComparer.Ordinal);
+
     private async Task<IReadOnlyList<StreamEntry>> ReclaimAsync(
         string stream, string group, string consumerName, CancellationToken ct)
     {
+        var reclaimKey = $"{stream}:{group}";
+        var now = DateTimeOffset.UtcNow;
+        if (_lastReclaimAt.TryGetValue(reclaimKey, out var last) && now - last < TimeSpan.FromMilliseconds(_options.MinIdleTimeMs / 2))
+            return Array.Empty<StreamEntry>();
+        _lastReclaimAt[reclaimKey] = now;
+
         try
         {
             var cursorKey = $"{stream}:{group}";
             var startAtId = _claimCursors.GetOrAdd(cursorKey, "0-0");
-            var result = await _db.StreamAutoClaimIdsOnlyAsync(
+            // Single roundtrip: StreamAutoClaim returns entries directly
+            var result = await _db.StreamAutoClaimAsync(
                 stream,
                 group,
                 consumerName,
@@ -131,19 +161,11 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
                 startAtId: startAtId,
                 count: _options.BatchSize).ConfigureAwait(false);
 
-            if (result.ClaimedIds.Length == 0)
+            if (result.ClaimedEntries.Length == 0)
                 return Array.Empty<StreamEntry>();
 
-            // Продвигаем курсор, чтобы следующий скан продолжил с последнего ID (O(1) вместо O(N)).
-            if (result.ClaimedIds.Length > 0)
-                _claimCursors[cursorKey] = result.ClaimedIds[^1].ToString();
-
-            return await _db.StreamClaimAsync(
-                stream,
-                group,
-                consumerName,
-                minIdleTimeInMs: _options.MinIdleTimeMs,
-                messageIds: result.ClaimedIds).ConfigureAwait(false);
+            _claimCursors[cursorKey] = result.ClaimedEntries[^1].Id.ToString();
+            return result.ClaimedEntries;
         }
         catch (RedisException)
         {
@@ -156,30 +178,31 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         try
         {
             var envelope = RedisEnvelopeSerializer.FromEntry(entry);
-            TrackLag(destination.Name, entry);
+            TrackLagAsync(destination.Name);
             return new RedisMessage(_db, entry, envelope, destination, group);
         }
         catch (InvalidDataException)
         {
-            // Несовместимый продюсер — снимаем с доставки (ack в группе, из которой прочитали),
-            // чтобы не зациклиться на мусоре.
-            _db.StreamAcknowledge(destination.Name, group, entry.Id);
+            _db.StreamAcknowledgeAsync(destination.Name, group, entry.Id).ConfigureAwait(false);
             return null;
         }
     }
 
-    private void TrackLag(string stream, StreamEntry entry)
+    private long _lastLagCheckTicks;
+    private void TrackLagAsync(string stream)
     {
-        try
+        var now = DateTimeOffset.UtcNow;
+        if (Interlocked.Read(ref _lastLagCheckTicks) != 0)
         {
-            var length = _db.StreamLength(stream);
-            // Приближение: длина стрима как «глубина» для консьюмеров без оффсет-метрик.
-            _consumerLags[stream] = length;
+            var last = new DateTimeOffset(Interlocked.Read(ref _lastLagCheckTicks), TimeSpan.Zero);
+            if (now - last < TimeSpan.FromSeconds(5)) return;
         }
-        catch (RedisException)
+        Interlocked.Exchange(ref _lastLagCheckTicks, now.UtcTicks);
+        _ = Task.Run(async () =>
         {
-            // Метрика — наблюдательная.
-        }
+            try { _consumerLags[stream] = await _db.StreamLengthAsync(stream).ConfigureAwait(false); }
+            catch (RedisException) { }
+        });
     }
 
     public async ValueTask ProvisionAsync(

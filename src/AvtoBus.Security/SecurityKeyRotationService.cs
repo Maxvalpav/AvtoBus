@@ -18,9 +18,14 @@ public sealed class SecurityKeyRotationService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(rotationInterval, time, stoppingToken).ContinueWith(_ => { }, stoppingToken);
-            if (stoppingToken.IsCancellationRequested)
+            try
+            {
+                await Task.Delay(rotationInterval, time, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
                 break;
+            }
 
             security.RotateKeysIfDue(time.GetUtcNow());
             logger.LogDebug("Ключи безопасности ротированы (новая эпоха)");

@@ -169,24 +169,28 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
     /// <summary>Сокращает суммарный объём заголовков до MaxHeaderBytes, выкидывая наибольшие значения.</summary>
     private bool TrimToByteLimit(Dictionary<string, string> headers)
     {
-        var totalBytes = headers.Sum(kvp => kvp.Key.Length + kvp.Value.Length);
+        static int ByteLen(string s) => System.Text.Encoding.UTF8.GetByteCount(s);
+        var totalBytes = headers.Sum(kvp => ByteLen(kvp.Key) + ByteLen(kvp.Value));
         if (totalBytes <= options.MaxHeaderBytes)
             return false;
 
-        // Убираем самые «жирные» заголовки, пока не влезем в лимит — служебные выше по приоритету не ставить
-        // не нужно: бюджета не хватает в принципе, Inc обсчитывать не требуется.
+        // Account for hops header that must be preserved
+        var hopsBytes = headers.TryGetValue(BusHeaders.Hops, out var hopsVal)
+            ? ByteLen(BusHeaders.Hops) + ByteLen(hopsVal)
+            : 0;
+        var budget = options.MaxHeaderBytes - hopsBytes;
+        if (budget < 0) budget = 0;
+
         foreach (var key in headers
-                     .OrderByDescending(kvp => kvp.Value.Length)
+                     .Where(kvp => kvp.Key != BusHeaders.Hops)
+                     .OrderByDescending(kvp => ByteLen(kvp.Value))
                      .Select(kvp => kvp.Key)
                      .ToArray())
         {
             if (totalBytes <= options.MaxHeaderBytes)
                 break;
 
-            if (key == BusHeaders.Hops)
-                continue;
-
-            totalBytes -= key.Length + headers[key].Length;
+            totalBytes -= ByteLen(key) + ByteLen(headers[key]);
             headers.Remove(key);
         }
 
@@ -231,23 +235,39 @@ internal static class PartitionKeyAccessor
     [RequiresUnreferencedCode("Поиск свойства [PartitionKey] и компиляция доступа — reflection (legacy).")]
     public static Func<object, string?>? For(Type type) => Cache.GetOrAdd(type, static t =>
     {
-        var property = t.GetProperties()
-            .FirstOrDefault(p => p.GetCustomAttributes(typeof(PartitionKeyAttribute), true).Length > 0);
-
-        if (property is null)
+        var props = t.GetProperties().Where(p => p.GetCustomAttributes(typeof(PartitionKeyAttribute), true).Length > 0).ToArray();
+        if (props.Length == 0)
             return null;
+        if (props.Length > 1)
+            throw new InvalidOperationException($"Тип {t.Name} имеет несколько [PartitionKey] свойств — укажите только одно.");
 
+        var property = props[0];
         var instance = System.Linq.Expressions.Expression.Parameter(typeof(object), "message");
         var converted = System.Linq.Expressions.Expression.Convert(instance, t);
         var prop = System.Linq.Expressions.Expression.Property(converted, property);
-        var propAsObject = System.Linq.Expressions.Expression.Convert(prop, typeof(object));
-        var nullCheck = System.Linq.Expressions.Expression.Condition(
-            System.Linq.Expressions.Expression.Equal(prop, System.Linq.Expressions.Expression.Constant(null, property.PropertyType)),
-            System.Linq.Expressions.Expression.Constant(null, typeof(string)),
-            System.Linq.Expressions.Expression.Call(propAsObject, typeof(object).GetMethod(nameof(ToString))!));
 
-        return System.Linq.Expressions.Expression
-            .Lambda<Func<object, string?>>(nullCheck, instance)
-            .Compile();
+        System.Linq.Expressions.Expression nullCheck;
+        if (property.PropertyType.IsValueType && Nullable.GetUnderlyingType(property.PropertyType) is null)
+        {
+            // Non-nullable value type — no null check needed
+            var propAsObjectVt = System.Linq.Expressions.Expression.Convert(prop, typeof(object));
+            nullCheck = System.Linq.Expressions.Expression.Call(propAsObjectVt, typeof(object).GetMethod(nameof(ToString))!);
+        }
+        else
+        {
+            var propAsObject = System.Linq.Expressions.Expression.Convert(prop, typeof(object));
+            nullCheck = System.Linq.Expressions.Expression.Condition(
+                System.Linq.Expressions.Expression.Equal(propAsObject, System.Linq.Expressions.Expression.Constant(null, typeof(object))),
+                System.Linq.Expressions.Expression.Constant(null, typeof(string)),
+                System.Linq.Expressions.Expression.Call(propAsObject, typeof(object).GetMethod(nameof(ToString))!));
+        }
+
+        // If value type without null, wrap in lambda that returns string directly
+        if (property.PropertyType.IsValueType && Nullable.GetUnderlyingType(property.PropertyType) is null)
+        {
+            return System.Linq.Expressions.Expression.Lambda<Func<object, string?>>(nullCheck, instance).Compile();
+        }
+
+        return System.Linq.Expressions.Expression.Lambda<Func<object, string?>>(nullCheck, instance).Compile();
     });
 }

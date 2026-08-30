@@ -68,17 +68,29 @@ public sealed class AsyncApiGenerator
             var (channelName, kind) = RouteOf(type);
             var messageKey = MessageKey(type);
 
-            channels[channelName] = new Dictionary<string, object>
+            if (channels.TryGetValue(channelName, out var existing)
+                && existing is Dictionary<string, object> existingDict
+                && existingDict["messages"] is Dictionary<string, object> existingMessages)
             {
-                ["address"] = channelName,
-                ["messages"] = new Dictionary<string, object>
+                existingMessages[messageKey] = new Dictionary<string, object>
                 {
-                    [messageKey] = new Dictionary<string, object>
+                    ["$ref"] = $"#/components/messages/{SanitizeRef(messageKey)}",
+                };
+            }
+            else
+            {
+                channels[channelName] = new Dictionary<string, object>
+                {
+                    ["address"] = channelName,
+                    ["messages"] = new Dictionary<string, object>
                     {
-                        ["$ref"] = $"#/components/messages/{SanitizeRef(messageKey)}",
+                        [messageKey] = new Dictionary<string, object>
+                        {
+                            ["$ref"] = $"#/components/messages/{SanitizeRef(messageKey)}",
+                        },
                     },
-                },
-            };
+                };
+            }
         }
         return channels;
     }
@@ -176,22 +188,25 @@ public sealed class AsyncApiGenerator
 
     private static string MapClrToJsonType(Type t)
     {
-        if (t == typeof(string) || t == typeof(Guid) || t == typeof(char))
+        var underlying = Nullable.GetUnderlyingType(t) ?? t;
+        if (underlying == typeof(string) || underlying == typeof(Guid) || underlying == typeof(char))
             return "string";
-        if (t == typeof(DateTime) || t == typeof(DateTimeOffset) || t == typeof(TimeSpan))
+        if (underlying == typeof(DateTime) || underlying == typeof(DateTimeOffset) || underlying == typeof(TimeSpan))
             return "string";
-        if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte))
+        if (underlying == typeof(int) || underlying == typeof(long) || underlying == typeof(short) || underlying == typeof(byte))
             return "integer";
-        if (t == typeof(decimal) || t == typeof(double) || t == typeof(float))
+        if (underlying == typeof(decimal) || underlying == typeof(double) || underlying == typeof(float))
             return "number";
-        if (t == typeof(bool))
+        if (underlying == typeof(bool))
             return "boolean";
-        if (t.IsEnum)
+        if (underlying.IsEnum)
             return "string";
+        if (underlying.IsArray || (underlying.IsGenericType && typeof(System.Collections.IEnumerable).IsAssignableFrom(underlying)))
+            return "array";
         return "object";
     }
 
-    private static string SanitizeRef(string s) => s.Replace(".", "_").Replace("/", "_");
+    private static string SanitizeRef(string s) => s.Replace(".", "_", StringComparison.Ordinal).Replace("/", "_", StringComparison.Ordinal).Replace("#", "_", StringComparison.Ordinal).Replace("*", "_", StringComparison.Ordinal).Replace(":", "_", StringComparison.Ordinal);
 
     private static readonly JsonSerializerOptions Options = new()
     {

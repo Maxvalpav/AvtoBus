@@ -10,6 +10,7 @@ namespace AvtoBus.Runtime;
 /// </summary>
 public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
 {
+    private const int MaxEntries = 500_000;
     private readonly ConcurrentDictionary<(Guid, string), DateTimeOffset> _seen = new();
     private DateTimeOffset _lastSweep;
     private readonly Lock _sweepGate = new();
@@ -21,6 +22,9 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
     {
         var now = time.GetUtcNow();
         SweepIfDue(now);
+
+        if (_seen.Count >= MaxEntries)
+            SweepIfDue(now.Add(window)); // force sweep if over limit
 
         return _seen.TryAdd((messageId, consumer), now);
     }

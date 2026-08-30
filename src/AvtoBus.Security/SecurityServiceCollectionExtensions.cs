@@ -29,10 +29,11 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure?.Invoke(options);
 
+        var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") is "Development" or null;
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
         {
-            // В разработке удобно, чтобы работало «из коробки» (детерминированный тестовый ключ).
-            // В проде должен быть задан явно — иначе подпись бессмысленна.
+            if (!isDevelopment && options.RequireSignature)
+                throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured when RequireSignature is enabled outside Development.");
             options.MasterSecret = "avtobus-development-only";
         }
 
@@ -58,8 +59,13 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure(options);
 
+        var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") is "Development" or null;
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
+        {
+            if (!isDev && options.RequireSignature)
+                throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured when RequireSignature is enabled outside Development.");
             options.MasterSecret = "avtobus-development-only";
+        }
 
         var security = new EnvelopeSecurity(options);
 

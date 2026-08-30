@@ -34,7 +34,7 @@ public sealed class MessageProcessor(
         window: TimeSpan.FromSeconds(10),
         time);
 
-    private readonly Random _random = new();
+    // Random.Shared is thread-safe (.NET 8+)
 
     /// <summary>
     /// Полный цикл обработки: возвращает решение, что сделать с сообщением на уровне транспорта.
@@ -362,7 +362,7 @@ public sealed class MessageProcessor(
         var delayedAttempt = attempt - settings.ImmediateRetryCount;
         if (delayedAttempt <= settings.DelayedRetryCount)
         {
-            var delay = settings.DelayedBackoff.Delay(delayedAttempt, _random);
+            var delay = settings.DelayedBackoff.Delay(delayedAttempt, Random.Shared);
 
             BusTelemetry.RecordDecision(Activity.Current, "retry-delayed", $"{delay.TotalSeconds:0.##}s");
             BusTelemetry.RetryCount.Add(1,

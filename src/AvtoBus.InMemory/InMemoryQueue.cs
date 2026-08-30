@@ -46,9 +46,9 @@ internal sealed class InMemoryQueue(string name, int capacity, TimeProvider time
                 {
                     var prio = -envelope.Priority; // PriorityQueue — min-heap, инвертируем
                     var seq = Interlocked.Increment(ref _seq);
-                    // WFQ weight: tenant weight добавляет к приоритету (отрицательно — выше приоритет)
+                    // WFQ weight: clamp to avoid starvation
                     if (envelope.Headers.TryGetValue("avtobus.wfq-weight", out var w) && int.TryParse(w, out var weight))
-                        prio -= weight;
+                        prio -= Math.Clamp(weight, -10, 10);
                     _pq.Enqueue(new PendingMessage(envelope), (prio, seq));
                     _signal.Release();
                     return;
@@ -92,7 +92,12 @@ internal sealed class InMemoryQueue(string name, int capacity, TimeProvider time
         {
             await _signal.WaitAsync(ct);
             PendingMessage msg;
-            lock (_gate) msg = _pq.Dequeue();
+            lock (_gate)
+            {
+                if (_pq.Count == 0)
+                    continue;
+                msg = _pq.Dequeue();
+            }
             yield return msg;
         }
     }

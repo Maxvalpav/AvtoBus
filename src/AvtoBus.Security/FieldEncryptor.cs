@@ -57,7 +57,10 @@ public static class FieldEncryptor
         return System.Text.Encoding.UTF8.GetString(plain.Span);
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo[]> Cache = new();
+
     private static IEnumerable<PropertyInfo> GetEncryptedProperties(Type type)
-        => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-               .Where(p => p.CanRead && p.CanWrite && p.GetCustomAttribute<EncryptedAttribute>() is not null && p.PropertyType == typeof(string));
+        => Cache.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+               .Where(p => p.CanRead && p.CanWrite && p.GetCustomAttribute<EncryptedAttribute>() is not null && p.PropertyType == typeof(string))
+               .ToArray());
 }

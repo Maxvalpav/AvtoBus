@@ -90,6 +90,8 @@ public sealed class TenantRegistry
     public bool AllowsCrossRegion(string tenantId)
         => _options.Tenants.TryGetValue(tenantId, out var tenant)
            && tenant.AllowCrossRegion is { } allowed
-            ? allowed
-            : _options.AllowCrossRegion;
+             ? allowed
+             : _options.AllowCrossRegion;
+
+    public bool Contains(string tenantId) => _options.Tenants.ContainsKey(tenantId);
 }

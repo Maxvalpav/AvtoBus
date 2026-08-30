@@ -44,11 +44,13 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
     /// <summary>Оценка лага из ActiveMessageCount очереди/подписки — для метрики consumer.lag.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
 
+    private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = new(StringComparer.Ordinal);
+
     public async ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
     {
         await EnsureProvisionedAsync(destination, ct).ConfigureAwait(false);
 
-        await using var sender = _client.CreateSender(destination.Name);
+        var sender = _senders.GetOrAdd(destination.Name, n => _client.CreateSender(n));
 
         var message = AsbEnvelopeSerializer.ToMessage(envelope);
         message.SessionId = _options.RequireSessions ? envelope.PartitionKey : null;
@@ -148,17 +150,34 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
         return subscription;
     }
 
+    private long _lastLagCheckTicks;
     private void TrackLag(string path)
     {
-        try
+        var now = DateTimeOffset.UtcNow;
+        if (Interlocked.Read(ref _lastLagCheckTicks) != 0)
         {
-            var queueRuntime = _admin.GetQueueRuntimePropertiesAsync(path).GetAwaiter().GetResult().Value;
-            _consumerLags[path] = queueRuntime.ActiveMessageCount;
+            var last = new DateTimeOffset(Interlocked.Read(ref _lastLagCheckTicks), TimeSpan.Zero);
+            if (now - last < TimeSpan.FromSeconds(30)) return;
         }
-        catch
+        Interlocked.Exchange(ref _lastLagCheckTicks, now.UtcTicks);
+        _ = Task.Run(async () =>
         {
-            // Метрика — наблюдательная; сбой не должен ломать обработку.
-        }
+            try
+            {
+                if (path.Contains('/', StringComparison.Ordinal))
+                {
+                    var parts = path.Split('/', 2);
+                    var props = await _admin.GetSubscriptionRuntimePropertiesAsync(parts[0], parts[1]).ConfigureAwait(false);
+                    _consumerLags[path] = props.Value.ActiveMessageCount;
+                }
+                else
+                {
+                    var props = await _admin.GetQueueRuntimePropertiesAsync(path).ConfigureAwait(false);
+                    _consumerLags[path] = props.Value.ActiveMessageCount;
+                }
+            }
+            catch { }
+        });
     }
 
     public async ValueTask ProvisionAsync(
@@ -221,6 +240,8 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        foreach (var s in _senders.Values)
+            s.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _client.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
@@ -283,7 +304,8 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             if (Interlocked.Exchange(ref _settled, 1) == 1)
                 return;
 
-            await _renewCts.CancelAsync().ConfigureAwait(false);
+            try { await _renewCts.CancelAsync().ConfigureAwait(false); } catch { }
+            _renewCts.Dispose();
             await _receiver.CompleteMessageAsync(_received, ct).ConfigureAwait(false);
         }
 
@@ -292,7 +314,8 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             if (Interlocked.Exchange(ref _settled, 1) == 1)
                 return;
 
-            await _renewCts.CancelAsync().ConfigureAwait(false);
+            try { await _renewCts.CancelAsync().ConfigureAwait(false); } catch { }
+            _renewCts.Dispose();
 
             if (requeue)
             {

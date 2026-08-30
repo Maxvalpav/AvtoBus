@@ -21,7 +21,7 @@ public sealed class RegionRouteGuard(TenantRegistry registry, TenantOptions opti
         if (region is null || options.CurrentRegion is null)
             return;
 
-        if (string.Equals(region, options.CurrentRegion, StringComparison.Ordinal))
+        if (string.Equals(region, options.CurrentRegion, StringComparison.OrdinalIgnoreCase))
             return;
 
         if (registry.AllowsCrossRegion(tenantId))

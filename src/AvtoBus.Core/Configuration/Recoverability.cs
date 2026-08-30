@@ -56,19 +56,18 @@ public abstract class Backoff
     {
         public override TimeSpan Delay(int attempt, Random random)
         {
-            // 2^attempt растёт быстро; ограничиваем показатель, чтобы не словить переполнение.
             var exponent = Math.Min(attempt, 30);
-            var raw = @base * Math.Pow(2, exponent - 1);
-
-            if (raw > cap)
-                raw = cap;
+            // Avoid TimeSpan overflow: clamp before multiply
+            var rawMs = @base.TotalMilliseconds * Math.Pow(2, exponent - 1);
+            if (rawMs > cap.TotalMilliseconds)
+                rawMs = cap.TotalMilliseconds;
+            var raw = TimeSpan.FromMilliseconds(rawMs);
 
             if (!jitter)
                 return raw;
 
-            // Decorrelated jitter: равномерно между base и раскрытым значением.
             var lower = @base.TotalMilliseconds;
-            var upper = raw.TotalMilliseconds;
+            var upper = rawMs;
             if (upper <= lower)
                 return @base;
 

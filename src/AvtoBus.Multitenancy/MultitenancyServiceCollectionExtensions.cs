@@ -60,16 +60,15 @@ public static class MultitenancyServiceCollectionExtensions
         configurator.Services.AddSingleton(options);
         configurator.Services.AddSingleton(new TenantRegistry(options));
 
-        var guard = new RegionRouteGuard(
-            new TenantRegistry(options),
-            options);
+        var registry = new TenantRegistry(options);
+        var guard = new RegionRouteGuard(registry, options);
 
         configurator.Options.RegionPolicy = guard;
         configurator.Services.AddSingleton<IRegionPolicy>(guard);
+        configurator.Services.AddSingleton(registry);
 
         // Изоляция на уровне хранилища (идея 462, уровни B/C): ядро переписывает destination
-        // на исходящем пути и расширяет подписки консьюмеров на per-tenant очереди.
-        var isolation = new TenantIsolationPolicy(new TenantRegistry(options));
+        var isolation = new TenantIsolationPolicy(registry);
         configurator.Options.TenantIsolationPolicy = isolation;
         configurator.Services.AddSingleton<ITenantIsolationPolicy>(isolation);
 

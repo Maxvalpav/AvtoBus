@@ -17,11 +17,10 @@ namespace AvtoBus.Serialization.MessagePack;
 /// </remarks>
 public sealed class MessagePackBusSerializer : IMessageSerializer
 {
-    /// <summary>Дефолтные опции: contractless (POCO без атрибутов) + LZ4 Block Array (сжатие на уровне формата).</summary>
+    /// <summary>Дефолтные опции: contractless (POCO без атрибутов). Сжатие — опционально через WithCompression.</summary>
     public static readonly MessagePackSerializerOptions DefaultOptions =
         MessagePackSerializerOptions.Standard
-            .WithResolver(global::MessagePack.Resolvers.ContractlessStandardResolver.Instance)
-            .WithCompression(MessagePackCompression.Lz4BlockArray);
+            .WithResolver(global::MessagePack.Resolvers.ContractlessStandardResolver.Instance);
 
     private readonly MessagePackSerializerOptions _options;
 
@@ -32,8 +31,7 @@ public sealed class MessagePackBusSerializer : IMessageSerializer
 
     public void Serialize(IBufferWriter<byte> writer, object message, Type type)
     {
-        var bytes = MessagePackSerializer.Serialize(type, message, _options);
-        writer.Write(bytes);
+        MessagePackSerializer.Serialize(type, writer, message, _options);
     }
 
     public object? Deserialize(ReadOnlyMemory<byte> body, Type type)

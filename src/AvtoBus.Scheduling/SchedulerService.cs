@@ -136,11 +136,17 @@ public sealed class SchedulerService : BackgroundService
         var now = _clock.GetUtcNow();
         var due = await _store.ClaimDueCronAsync(now.UtcDateTime, _instanceId, ct);
 
+        // Cache parsed cron expressions
+        var cronCache = new Dictionary<string, CronExpression>(StringComparer.Ordinal);
         foreach (var schedule in due)
         {
             try
             {
-                var cron = CronExpression.Parse(schedule.CronExpression);
+                if (!cronCache.TryGetValue(schedule.CronExpression, out var cron))
+                {
+                    cron = CronExpression.Parse(schedule.CronExpression);
+                    cronCache[schedule.CronExpression] = cron;
+                }
                 var tz = TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZoneId);
 
                 // Misfire-политика

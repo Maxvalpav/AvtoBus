@@ -34,7 +34,7 @@ public static class CompletionCommand
         # avtobus bash completion
         _avtobus() {
           local cur="${COMP_WORDS[COMP_CWORD]}"
-          local commands="doctor contracts es config dlq completion"
+          local commands="doctor contracts es asyncapi config dlq completion"
           COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
         }
         complete -F _avtobus avtobus
@@ -44,7 +44,7 @@ public static class CompletionCommand
         #compdef avtobus
         _avtobus() {
           local -a commands
-          commands=(doctor contracts es config dlq completion)
+          commands=(doctor contracts es asyncapi config dlq completion)
           _describe 'command' commands
         }
         compdef _avtobus avtobus
@@ -52,14 +52,14 @@ public static class CompletionCommand
 
     private const string FishScript = """
         # avtobus fish completion
-        complete -c avtobus -f -a "doctor contracts es config dlq completion"
+        complete -c avtobus -f -a "doctor contracts es asyncapi config dlq completion"
         """;
 
     private const string PowershellScript = """
         # avtobus PowerShell completion
         Register-ArgumentCompleter -Native -CommandName avtobus -ScriptBlock {
           param($wordToComplete, $commandAst, $cursorPosition)
-          'doctor','contracts','es','config','dlq','completion' |
+          'doctor','contracts','es','asyncapi','config','dlq','completion' |
             Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
         }

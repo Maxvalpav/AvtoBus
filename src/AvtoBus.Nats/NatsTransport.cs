@@ -28,12 +28,26 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
     public NatsTransport(NatsOptions options)
     {
         _options = options;
-
         var opts = NatsOpts.Default with { Url = options.Url };
         _connection = new NatsConnection(opts);
         _connection.ConnectAsync().GetAwaiter().GetResult();
-
         _js = new NatsJSContextFactory().CreateContext(_connection);
+    }
+
+    public static async Task<NatsTransport> CreateAsync(NatsOptions options, CancellationToken ct = default)
+    {
+        var opts = NatsOpts.Default with { Url = options.Url };
+        var conn = new NatsConnection(opts);
+        await conn.ConnectAsync().ConfigureAwait(false);
+        var js = new NatsJSContextFactory().CreateContext(conn);
+        return new NatsTransport(options, conn, js);
+    }
+
+    private NatsTransport(NatsOptions options, NatsConnection connection, INatsJSContext js)
+    {
+        _options = options;
+        _connection = connection;
+        _js = js;
     }
 
     public string Name => "nats";
@@ -92,9 +106,9 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // Неудачное создание/обновление consumer-а не должно валить подписку навсегда —
-            // конфигурация идемпотентна, ошибка повторится на следующем цикле.
-            await Task.Yield();
+            // Log topology error but don't hide auth failures forever
+            await Task.Delay(1000, ct).ConfigureAwait(false);
+            throw;
         }
 
         var subscriptionTask = _connection.SubscribeAsync<NatsJSMsg<byte[]>>(

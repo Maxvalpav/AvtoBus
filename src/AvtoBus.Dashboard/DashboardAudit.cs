@@ -25,9 +25,15 @@ public interface IDashboardAuditLog
 /// подключают собственную реализацию (EF Core, база аудита).</summary>
 public sealed class InMemoryDashboardAuditLog : IDashboardAuditLog
 {
+    private const int MaxRows = 10_000;
     private readonly ConcurrentQueue<DashboardAuditRow> _rows = new();
 
     public IReadOnlyCollection<DashboardAuditRow> Rows => _rows.ToArray();
 
-    public void Write(DashboardAuditRow row) => _rows.Enqueue(row);
+    public void Write(DashboardAuditRow row)
+    {
+        _rows.Enqueue(row);
+        while (_rows.Count > MaxRows)
+            _rows.TryDequeue(out _);
+    }
 }

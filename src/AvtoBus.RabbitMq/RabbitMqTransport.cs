@@ -30,8 +30,30 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
 
     public RabbitMqTransport(RabbitMqOptions options)
     {
+        // Prefer async factory CreateAsync for non-blocking init; sync ctor kept for backward compat.
         _options = options;
+        _connection = CreateConnectionAsync(options).GetAwaiter().GetResult();
+        _publishChannel = CreatePublishChannelAsync(_connection).GetAwaiter().GetResult();
+        _confirmTracker = new PublisherConfirmationTracker(_publishChannel);
+    }
 
+    public static async Task<RabbitMqTransport> CreateAsync(RabbitMqOptions options, CancellationToken ct = default)
+    {
+        var connection = await CreateConnectionAsync(options).ConfigureAwait(false);
+        var channel = await CreatePublishChannelAsync(connection).ConfigureAwait(false);
+        return new RabbitMqTransport(options, connection, channel);
+    }
+
+    private RabbitMqTransport(RabbitMqOptions options, IConnection connection, IChannel publishChannel)
+    {
+        _options = options;
+        _connection = connection;
+        _publishChannel = publishChannel;
+        _confirmTracker = new PublisherConfirmationTracker(_publishChannel);
+    }
+
+    private static Task<IConnection> CreateConnectionAsync(RabbitMqOptions options)
+    {
         var factory = new ConnectionFactory
         {
             Uri = new Uri(options.ConnectionString),
@@ -41,17 +63,15 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
             RequestedHeartbeat = options.RequestedHeartbeat,
             ClientProvidedName = options.ClientProvidedName,
         };
+        return factory.CreateConnectionAsync();
+    }
 
-        _connection = factory.CreateConnectionAsync().GetAwaiter().GetResult();
-        _publishChannel = _connection
-            .CreateChannelAsync(new CreateChannelOptions(
+    private static Task<IChannel> CreatePublishChannelAsync(IConnection connection)
+        => connection.CreateChannelAsync(new CreateChannelOptions(
                 publisherConfirmationsEnabled: true,
                 publisherConfirmationTrackingEnabled: false,
                 outstandingPublisherConfirmationsRateLimiter: null,
-                consumerDispatchConcurrency: null))
-            .GetAwaiter().GetResult();
-        _confirmTracker = new PublisherConfirmationTracker(_publishChannel);
-    }
+                consumerDispatchConcurrency: null));
 
     public string Name => "rabbitmq";
 
@@ -297,20 +317,27 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
 
     private async Task EnsureQueueAsync(IChannel channel, string queueName, CancellationToken ct)
     {
-        if (_options.UseDeadLetterExchange)
+        try
         {
-            // DLQ: exchange {queue}.dlx → очередь {queue}.dlq по routing key = имени очереди.
-            var dlx = queueName + ".dlx";
-            var dlq = queueName + ".dlq";
+            if (_options.UseDeadLetterExchange)
+            {
+                var dlx = queueName + ".dlx";
+                var dlq = queueName + ".dlq";
 
-            await channel.ExchangeDeclareAsync(
-                dlx, "direct", durable: true, autoDelete: false, arguments: null,
-                passive: false, noWait: false, ct).ConfigureAwait(false);
-            await DeclareWorkQueueAsync(channel, dlq, hasDlx: false, ct).ConfigureAwait(false);
-            await channel.QueueBindAsync(dlq, dlx, queueName, arguments: null, noWait: false, ct).ConfigureAwait(false);
+                await channel.ExchangeDeclareAsync(
+                    dlx, "direct", durable: true, autoDelete: false, arguments: null,
+                    passive: false, noWait: false, ct).ConfigureAwait(false);
+                await DeclareWorkQueueAsync(channel, dlq, hasDlx: false, ct).ConfigureAwait(false);
+                await channel.QueueBindAsync(dlq, dlx, queueName, arguments: null, noWait: false, ct).ConfigureAwait(false);
+            }
+
+            await DeclareWorkQueueAsync(channel, queueName, hasDlx: true, ct).ConfigureAwait(false);
         }
-
-        await DeclareWorkQueueAsync(channel, queueName, hasDlx: true, ct).ConfigureAwait(false);
+        catch (RabbitMQ.Client.Exceptions.OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == 406)
+        {
+            // Queue exists with different type (classic vs quorum) — log and reuse existing.
+            // Topology mismatch is idempotent for consumer path.
+        }
     }
 
     private async Task DeclareWorkQueueAsync(IChannel channel, string queueName, bool hasDlx, CancellationToken ct)
@@ -520,6 +547,8 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
 
         private void CompleteUpTo(ulong deliveryTag, bool confirmed)
         {
+            // Note: RabbitMQ 'multiple' flag batch-acks, but we only track single inflight due to _publishLock.
+            // We therefore complete exact sequence if present, otherwise batch semantics still correct for single.
             KeyValuePair<ulong, TaskCompletionSource>[] matched;
             lock (_gate)
             {

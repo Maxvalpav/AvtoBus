@@ -133,6 +133,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
         // Счётчик невыполненных (выданных, но не подтверждённых) сообщений — для паузы партиций.
         var outstanding = 0;
         var paused = false;
+        var lastLagCheck = DateTimeOffset.MinValue;
 
         try
         {
@@ -141,7 +142,12 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                 ConsumeResult<string, byte[]> result;
                 try
                 {
-                    result = consumer.Consume(ct);
+                    result = consumer.Consume(TimeSpan.FromMilliseconds(100));
+                    if (result is null)
+                    {
+                        await Task.Delay(10, ct).ConfigureAwait(false);
+                        continue;
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -149,7 +155,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                 }
                 catch (ConsumeException)
                 {
-                    // Сбой чтения (например, leader unavailable) — продолжаем опрос.
+                    try { await Task.Delay(500, ct).ConfigureAwait(false); } catch (OperationCanceledException) { yield break; }
                     continue;
                 }
 
@@ -168,16 +174,18 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                     continue;
                 }
 
-                TrackLag(consumer, result, group);
+                if (DateTimeOffset.UtcNow - lastLagCheck > TimeSpan.FromSeconds(5))
+                {
+                    TrackLag(consumer, result, group);
+                    lastLagCheck = DateTimeOffset.UtcNow;
+                }
 
-                var message = new KafkaMessage(this, consumer, result, envelope);
-                outstanding++;
+                var message = new KafkaMessage(this, consumer, result, envelope, () => System.Threading.Interlocked.Decrement(ref outstanding));
+                System.Threading.Interlocked.Increment(ref outstanding);
                 ApplyBackpressure(consumer, ref outstanding, ref paused);
 
                 yield return message;
 
-                // После возврата управления хендлер уже мог подтвердить/отклонить —
-                // паузу снимаем, когда буфер опустел.
                 ApplyBackpressure(consumer, ref outstanding, ref paused);
             }
         }
@@ -301,18 +309,21 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
         private readonly KafkaTransport _transport;
         private readonly IConsumer<string, byte[]> _consumer;
         private readonly ConsumeResult<string, byte[]> _result;
+        private readonly Action _onSettled;
         private int _settled;
 
         public KafkaMessage(
             KafkaTransport transport,
             IConsumer<string, byte[]> consumer,
             ConsumeResult<string, byte[]> result,
-            Envelope envelope)
+            Envelope envelope,
+            Action onSettled)
         {
             _transport = transport;
             _consumer = consumer;
             _result = result;
             Envelope = envelope;
+            _onSettled = onSettled;
         }
 
         public Envelope Envelope { get; }
@@ -327,6 +338,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                 return ValueTask.CompletedTask;
 
             _consumer.Commit(_result);
+            _onSettled();
             return ValueTask.CompletedTask;
         }
 
@@ -337,13 +349,12 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
 
             if (requeue)
             {
-                // Requeue в Kafka = пере-публикация с инкрементом попытки; исходный оффсет
-                // коммитим, чтобы сообщение не вернулось само через redelivery.
                 var retry = KafkaEnvelopeSerializer.ToKafka(Envelope.NextAttempt());
                 await _transport.SendMessageAsync(_result.Topic, retry, ct).ConfigureAwait(false);
             }
 
             _consumer.Commit(_result);
+            _onSettled();
         }
     }
 }

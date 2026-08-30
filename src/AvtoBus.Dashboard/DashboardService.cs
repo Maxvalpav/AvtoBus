@@ -38,6 +38,7 @@ public sealed class DashboardService(
         var queues = new List<DashboardQueue>();
         var totalPending = 0;
         var dlqCount = 0;
+        var runnerCounts = consumerHost.Runners.GroupBy(r => r.Name).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
         foreach (var provider in depthProviders)
         {
@@ -46,7 +47,7 @@ public sealed class DashboardService(
                 var isDlq = queue.EndsWith(".error", StringComparison.OrdinalIgnoreCase)
                     || queue.EndsWith(".poison", StringComparison.OrdinalIgnoreCase)
                     || queue.EndsWith(".expired", StringComparison.OrdinalIgnoreCase);
-                var consumers = consumerHost.Runners.Count(r => r.Name == queue);
+                runnerCounts.TryGetValue(queue, out var consumers);
                 totalPending += depth;
                 if (isDlq) dlqCount += depth;
                 queues.Add(new DashboardQueue(queue, depth, consumers, isDlq));
@@ -108,9 +109,9 @@ public sealed class DashboardService(
         => IsDlqName(queue) ? TransportDestination.Queue(queue) : TransportDestination.Queue(queue + ".error");
 
     private static bool IsDlqName(string queue)
-        => queue.EndsWith(".error", StringComparison.Ordinal)
-           || queue.EndsWith(".poison", StringComparison.Ordinal)
-           || queue.EndsWith(".expired", StringComparison.Ordinal);
+        => queue.EndsWith(".error", StringComparison.OrdinalIgnoreCase)
+            || queue.EndsWith(".poison", StringComparison.OrdinalIgnoreCase)
+            || queue.EndsWith(".expired", StringComparison.OrdinalIgnoreCase);
 
     private void EnsureDangerousAllowed(string action, string user)
     {

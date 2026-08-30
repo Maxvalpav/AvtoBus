@@ -144,13 +144,17 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                 .ConfigureAwait(false);
         }
 
-        foreach (var (id, err) in failed)
+        if (failed.Count > 0)
         {
+            var failedIds = failed.Select(f => f.Id).ToList();
+            var failedMap = failed.ToDictionary(f => f.Id, f => f.Error);
+            // Batch mark failed with exponential backoff: SendAfter = now + 2^attempt
             await db.Set<OutboxMessage>()
-                .Where(o => o.Id == id)
+                .Where(o => failedIds.Contains(o.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(o => o.Attempt, o => o.Attempt + 1)
-                    .SetProperty(o => o.LastError, err)
+                    .SetProperty(o => o.LastError, o => failedMap[o.Id])
+                    .SetProperty(o => o.SendAfter, o => DateTime.UtcNow.AddSeconds(Math.Pow(2, o.Attempt)))
                     .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
                 .ConfigureAwait(false);
         }

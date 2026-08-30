@@ -72,11 +72,27 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
             });
         }
 
-        db.Set<EsEvent>().AddRange(entities);
-
+        // Обе операции — события и метаданные стрима — в одной транзакции для консистентности.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
+            db.Set<EsEvent>().AddRange(entities);
+
+            if (stream is null)
+                db.Set<EsStream>().Add(new EsStream
+                {
+                    StreamId = streamId,
+                    StreamType = streamType,
+                    Version = version,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            else
+            {
+                stream.Version = version;
+                stream.UpdatedAt = now;
+            }
+
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
         }
@@ -87,24 +103,6 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         }
 
         var sequences = entities.Select(e => e.GlobalSequence).ToList();
-
-        if (stream is null)
-            db.Set<EsStream>().Add(new EsStream
-            {
-                StreamId = streamId,
-                StreamType = streamType,
-                Version = version,
-                CreatedAt = now,
-                UpdatedAt = now,
-            });
-        else
-        {
-            stream.Version = version;
-            stream.UpdatedAt = now;
-        }
-
-        // Снапшот/секвенции уже сохранены; коммит метаданных стрима.
-        await db.SaveChangesAsync(ct);
 
         return new AppendResult(version, sequences[0], sequences[^1]);
     }
@@ -127,7 +125,7 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         if (toVersion is int to)
             query = query.Where(e => e.Version <= to);
 
-        foreach (var e in await query.AsNoTracking().ToListAsync(ct))
+        await foreach (var e in query.AsNoTracking().AsAsyncEnumerable().WithCancellation(ct))
             yield return MapEvent(e);
     }
 
@@ -147,7 +145,7 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         if (eventTypeFilter is { Count: > 0 })
             query = query.Where(e => eventTypeFilter.Contains(e.EventType));
 
-        foreach (var e in await query.OrderBy(e => e.GlobalSequence).Take(batchSize).AsNoTracking().ToListAsync(ct))
+        await foreach (var e in query.OrderBy(e => e.GlobalSequence).Take(batchSize).AsNoTracking().AsAsyncEnumerable().WithCancellation(ct))
             yield return MapEvent(e);
     }
 
@@ -162,10 +160,10 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TDb>();
 
-        foreach (var e in await db.Set<EsEvent>()
+        await foreach (var e in db.Set<EsEvent>()
                      .Where(x => x.StreamType == streamType && x.GlobalSequence > fromSequence)
                      .OrderBy(x => x.GlobalSequence)
-                     .AsNoTracking().ToListAsync(ct))
+                     .AsNoTracking().AsAsyncEnumerable().WithCancellation(ct))
             yield return MapEvent(e);
     }
 
@@ -273,11 +271,16 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         if (inner.GetType().Name == "PostgresException")
         {
             var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
-            if (sqlState == "23505") return true;
+            if (sqlState == "23505")
+            {
+                var constraint = inner.GetType().GetProperty("ConstraintName")?.GetValue(inner) as string;
+                if (constraint is not null)
+                    return constraint.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
+                // Fallback strict: only if message contains our constraint
+                return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
         }
-        return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase)
-               || inner.Message.Contains("unique", StringComparison.OrdinalIgnoreCase)
-               || inner.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
-               || inner.Message.Contains("23505", StringComparison.OrdinalIgnoreCase);
+        return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
     }
 }

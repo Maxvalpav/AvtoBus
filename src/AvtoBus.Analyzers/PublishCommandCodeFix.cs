@@ -34,7 +34,14 @@ public sealed class PublishCommandCodeFix : CodeFixProvider
                 continue;
 
             var currentMethod = memberAccess.Name.Identifier.Text;
-            var newMethod = currentMethod == "Publish" ? "Send" : "Publish";
+            var newMethod = currentMethod switch
+            {
+                "Publish" => "Send",
+                "PublishAsync" => "SendAsync",
+                "Send" => "Publish",
+                "SendAsync" => "PublishAsync",
+                _ => currentMethod == "Publish" ? "Send" : "Publish",
+            };
             var title = $"Replace '{currentMethod}' with '{newMethod}'";
 
             context.RegisterCodeFix(
@@ -42,8 +49,8 @@ public sealed class PublishCommandCodeFix : CodeFixProvider
                     title,
                     _ =>
                     {
-                        var newName = memberAccess.WithName(SyntaxFactory.IdentifierName(newMethod));
-                        var newInvocation = invocation.WithExpression(newName);
+                        var newName = memberAccess.WithName(SyntaxFactory.IdentifierName(newMethod).WithTriviaFrom(memberAccess.Name));
+                        var newInvocation = invocation.WithExpression(newName).WithTriviaFrom(invocation);
                         var newRoot = root.ReplaceNode(invocation, newInvocation);
                         return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
                     },

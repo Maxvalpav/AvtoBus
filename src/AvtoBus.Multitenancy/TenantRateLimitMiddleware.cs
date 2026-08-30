@@ -9,12 +9,20 @@ namespace AvtoBus.Multitenancy;
 /// </summary>
 public sealed class TenantRateLimitMiddleware(TenantRegistry registry, TimeProvider clock) : IBusMiddleware
 {
+    private const int MaxLimiters = 2048;
     private readonly Dictionary<string, TenantRateLimiter> _limiters = new(StringComparer.Ordinal);
 
     public async ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
     {
         var tenantId = context.Envelope.TenantId;
         if (tenantId is null)
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Whitelist mode: unknown tenant bypasses or deadletters
+        if (!registry.Contains(tenantId))
         {
             await next(context).ConfigureAwait(false);
             return;
@@ -34,9 +42,21 @@ public sealed class TenantRateLimitMiddleware(TenantRegistry registry, TimeProvi
             return;
         }
 
-        // Backpressure: не выбрасываем исключение (оно засчитает ретрай и может добить бюджет),
-        // а откладываем доставку — сообщение вернётся в очередь и попробует снова.
+        // Defer with bounded retry count to avoid infinite loop
+        var deferCount = TryGetDeferCount(context.Envelope);
+        if (deferCount >= 10)
+        {
+            context.DeadLetter($"Tenant {tenantId} over quota after {deferCount} deferrals");
+            return;
+        }
+
         await context.DeferAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+    }
+
+    private static int TryGetDeferCount(Envelope envelope)
+    {
+        var v = envelope.Header("avtobus-tenant-defer-count");
+        return int.TryParse(v, out var c) ? c : 0;
     }
 
     private TenantRateLimiter GetOrCreate(string tenantId, int rate)
@@ -45,6 +65,9 @@ public sealed class TenantRateLimitMiddleware(TenantRegistry registry, TimeProvi
         {
             if (!_limiters.TryGetValue(tenantId, out var limiter))
             {
+                if (_limiters.Count >= MaxLimiters)
+                    return new TenantRateLimiter(rate); // transient limiter, no growth
+
                 limiter = new TenantRateLimiter(rate);
                 _limiters[tenantId] = limiter;
             }

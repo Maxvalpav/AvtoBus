@@ -47,13 +47,31 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
         return instance;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, (object Parser, MethodInfo ParseMethod)> ParserCache = new();
+
     private static object? FindParser(Type type)
-        => type.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+    {
+        if (ParserCache.TryGetValue(type, out var cached))
+            return cached.Parser;
+        var parser = type.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        if (parser is null) return null;
+        var parse = parser.GetType().GetMethod("ParseFrom", [typeof(byte[])])
+                    ?? throw new NotSupportedException($"Parser типа {parser.GetType().Name} не имеет ParseFrom(byte[]).");
+        ParserCache[type] = (parser, parse);
+        return parser;
+    }
 
     private static object? InvokeParse(object parser, ReadOnlyMemory<byte> body)
     {
-        var parse = parser.GetType().GetMethod("ParseFrom", [typeof(byte[])])
-                    ?? throw new NotSupportedException($"Parser типа {parser.GetType().Name} не имеет ParseFrom(byte[]).");
+        var type = parser.GetType();
+        // try cache first
+        foreach (var kv in ParserCache)
+        {
+            if (ReferenceEquals(kv.Value.Parser, parser))
+                return kv.Value.ParseMethod.Invoke(parser, [body.ToArray()]);
+        }
+        var parse = type.GetMethod("ParseFrom", [typeof(byte[])])
+                     ?? throw new NotSupportedException($"Parser типа {type.Name} не имеет ParseFrom(byte[]).");
         return parse.Invoke(parser, [body.ToArray()]);
     }
 }

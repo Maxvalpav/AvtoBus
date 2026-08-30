@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Security.Cryptography;
 using AvtoBus;
 
@@ -80,17 +79,22 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
             if (!BodyEncryptor.TryReadNonce(envelope, out var nonce))
                 throw new SecurityViolationException("Повреждён заголовок шифрования (nonce)");
 
-            try
+            foreach (var keys in _keys.AllGenerationsOrderedDesc())
             {
-                return envelope with
+                try
                 {
-                    Body = BodyEncryptor.Decrypt(envelope.Body.Span, _keys.Actual.EncryptionKey, nonce),
-                };
+                    return envelope with
+                    {
+                        Body = BodyEncryptor.Decrypt(envelope.Body.Span, keys.EncryptionKey, nonce),
+                    };
+                }
+                catch (CryptographicException)
+                {
+                    // try next generation
+                }
             }
-            catch (CryptographicException exception)
-            {
-                throw new SecurityViolationException("Не удалось расшифровать тело конверта", exception);
-            }
+
+            throw new SecurityViolationException("Не удалось расшифровать тело конверта ни одним из поколений ключей");
         }
 
         return envelope;
@@ -99,8 +103,7 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
 /// <summary>
 /// Простой точный limiter (идея 459): не более N сообщений в секунду. При нулевом N — пропускает всё.
-/// Потокобезопасен; при превышении лимита короткая асинхронная задержка вместо бригады исключений —
-/// шина транспорта не станет «снежным комом» из-за бурста.
+/// Потокобезопасен; при превышении лимита короткая асинхронная задержка вместо бригады исключений.
 /// </summary>
 internal sealed class RateLimiter(int permitsPerSecond)
 {
@@ -130,5 +133,31 @@ internal sealed class RateLimiter(int permitsPerSecond)
 
         if (waitMs > 0)
             Thread.Sleep((int)waitMs);
+    }
+
+    public ValueTask WaitIfNeededAsync(CancellationToken ct = default)
+    {
+        if (permitsPerSecond <= 0)
+            return ValueTask.CompletedTask;
+
+        long waitMs = 0;
+        lock (this)
+        {
+            var nowTicks = Environment.TickCount64;
+            if (nowTicks - _windowStartTicks >= 1000)
+            {
+                _windowStartTicks = nowTicks;
+                _counter = 0;
+            }
+
+            if (_counter >= permitsPerSecond)
+                waitMs = 1000 - (nowTicks - _windowStartTicks);
+
+            _counter++;
+        }
+
+        return waitMs > 0
+            ? new ValueTask(Task.Delay((int)waitMs, ct))
+            : ValueTask.CompletedTask;
     }
 }

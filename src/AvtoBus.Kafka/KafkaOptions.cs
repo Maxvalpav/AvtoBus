@@ -34,7 +34,7 @@ public sealed class KafkaOptions
     /// При exactly-once — уникальный идентификатор транзакционного продюсера на инстанс.
     /// Один и тот же id не должен делиться между процессами (лидер-элекшн).
     /// </summary>
-    public string TransactionalId { get; set; } = "avtobus";
+    public string TransactionalId { get; set; } = $"avtobus-{Guid.NewGuid():N}";
 
     /// <summary>Подтверждение продюсера: 0, 1 или -1 (all). По умолчанию all.</summary>
     public Acks Acks { get; set; } = Acks.All;

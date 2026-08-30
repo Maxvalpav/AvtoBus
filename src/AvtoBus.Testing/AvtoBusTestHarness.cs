@@ -106,14 +106,15 @@ public sealed class AvtoBusTestHarness : IAsyncDisposable
     /// <summary>Общий примитив ожидания условия.</summary>
     public async Task<bool> WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+        var tp = Services.GetService<TimeProvider>() ?? TimeProvider.System;
+        var deadline = tp.GetUtcNow() + (timeout ?? TimeSpan.FromSeconds(5));
 
-        while (DateTime.UtcNow < deadline)
+        while (tp.GetUtcNow() < deadline)
         {
             if (condition())
                 return true;
 
-            await Task.Delay(10).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), tp).ConfigureAwait(false);
         }
 
         return condition();

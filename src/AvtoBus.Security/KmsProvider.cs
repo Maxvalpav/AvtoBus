@@ -21,9 +21,14 @@ public sealed class InMemoryKmsProvider : IKmsProvider
         _keys[keyId].Add(key);
     }
     public Task<byte[]> GetCurrentKeyAsync(string keyId, CancellationToken ct)
-        => Task.FromResult(_keys.TryGetValue(keyId, out var list) && list.Count > 0 ? list[^1] : RandomNumberGenerator.GetBytes(32));
+        => _keys.TryGetValue(keyId, out var list) && list.Count > 0
+            ? Task.FromResult(list[^1])
+            : Task.FromException<byte[]>(new KeyNotFoundException($"KMS key '{keyId}' not found"));
+
     public Task<byte[]> GetKeyByVersionAsync(string keyId, int version, CancellationToken ct)
-        => Task.FromResult(_keys.TryGetValue(keyId, out var list) && version < list.Count ? list[version] : RandomNumberGenerator.GetBytes(32));
+        => _keys.TryGetValue(keyId, out var list) && version >= 0 && version < list.Count
+            ? Task.FromResult(list[version])
+            : Task.FromException<byte[]>(new KeyNotFoundException($"KMS key '{keyId}' version {version} not found"));
 }
 
 public sealed class KmsKeyRing

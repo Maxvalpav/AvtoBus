@@ -20,8 +20,29 @@ public sealed class TransportBridge : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        var tasks = _options.Rules.Select(r => BridgeLoop(r, ct));
+        var tasks = _options.Rules.Select(r => SupervisorLoop(r, ct)).ToList();
         await Task.WhenAll(tasks);
+    }
+
+    private async Task SupervisorLoop(BridgeRule rule, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await BridgeLoop(rule, ct);
+                break;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "[Bridge] loop failed for {Source}->{Dest}, restarting in 5s", rule.SourceTransport, rule.DestinationTransport);
+                try { await Task.Delay(TimeSpan.FromSeconds(5), ct); } catch (OperationCanceledException) { break; }
+            }
+        }
     }
 
     private async Task BridgeLoop(BridgeRule rule, CancellationToken ct)
