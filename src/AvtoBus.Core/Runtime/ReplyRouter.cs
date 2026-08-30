@@ -33,11 +33,11 @@ public sealed class ReplyRouter
     {
         using var timeoutSource = new CancellationTokenSource(timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutSource.Token);
-        await using var registration = linked.Token.Register(static state =>
+        using var registration = linked.Token.Register(static state =>
         {
             var source = (TaskCompletionSource<object>)state!;
             source.TrySetCanceled();
-        }, pending.Completion).ConfigureAwait(false);
+        }, pending.Completion);
 
         try
         {

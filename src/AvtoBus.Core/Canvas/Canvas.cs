@@ -115,7 +115,11 @@ public sealed class InMemoryChordStore : IChordStore
             if (!_map.TryGetValue(chordId, out var e)) return ValueTask.FromResult(false);
             var next = e with { Remaining = e.Remaining - 1 };
             if (_map.TryUpdate(chordId, next, e))
+            {
+                if (next.Remaining <= 0)
+                    _map.TryRemove(chordId, out _);
                 return ValueTask.FromResult(next.Remaining <= 0);
+            }
         }
     }
 

@@ -37,14 +37,23 @@ public sealed class AvtoBusClient(
         };
 
         // Регистрируем ожидание ДО отправки: ответ может прилететь быстрее, чем вернётся Send.
+        var requestId = sendOptions.MessageId.Value;
         var waiting = replies.RegisterAsync(
-            sendOptions.MessageId.Value,
+            requestId,
             typeof(TReply),
             timeout ?? options.DefaultRequestTimeout,
             ct);
 
-        await DispatchAsync(request, typeof(TRequest), OutgoingKind.Send, sendOptions, parent: null, ct)
-            .ConfigureAwait(false);
+        try
+        {
+            await DispatchAsync(request, typeof(TRequest), OutgoingKind.Send, sendOptions, parent: null, ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            replies.TryFail(requestId, ex);
+            throw;
+        }
 
         return (TReply)await waiting.ConfigureAwait(false);
     }

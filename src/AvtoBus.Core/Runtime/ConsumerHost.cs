@@ -390,11 +390,14 @@ public sealed class ConsumerRunner(
     private async ValueTask ApplyAsync(ITransportMessage message, ProcessingDecision decision, CancellationToken ct)
     {
         var source = message.Source;
+        // Ack/Reject/Send не должны зависеть от stoppingToken — при StopAsync он отменён,
+        // иначе сообщение останется unacked и уйдёт в дубликат (идея 35).
+        var settleCt = CancellationToken.None;
 
         switch (decision.Action)
         {
             case ProcessingAction.Acknowledge:
-                await message.AcknowledgeAsync(ct).ConfigureAwait(false);
+                await message.AcknowledgeAsync(settleCt).ConfigureAwait(false);
                 break;
 
             case ProcessingAction.Retry:
@@ -402,19 +405,19 @@ public sealed class ConsumerRunner(
                 {
                     // Задержку перед повтором делаем через DeliverAt: сообщение вернётся в очередь,
                     // но станет видимым только по истечении бэкоффа.
-                    await RequeueWithDelayAsync(message, decision.Delay, source, ct).ConfigureAwait(false);
+                    await RequeueWithDelayAsync(message, decision.Delay, source, settleCt).ConfigureAwait(false);
                     break;
                 }
 
-                await message.RejectAsync(requeue: true, ct).ConfigureAwait(false);
+                await message.RejectAsync(requeue: true, settleCt).ConfigureAwait(false);
                 break;
 
             case ProcessingAction.DeadLetter:
-                await DeadLetterAsync(message, decision, source, InMemoryErrorSuffix, ct).ConfigureAwait(false);
+                await DeadLetterAsync(message, decision, source, InMemoryErrorSuffix, settleCt).ConfigureAwait(false);
                 break;
 
             case ProcessingAction.Poison:
-                await DeadLetterAsync(message, decision, source, PoisonSuffix, ct).ConfigureAwait(false);
+                await DeadLetterAsync(message, decision, source, PoisonSuffix, settleCt).ConfigureAwait(false);
                 break;
 
             case ProcessingAction.Discard:
@@ -422,7 +425,7 @@ public sealed class ConsumerRunner(
                     "Сообщение {MessageId} отброшено: {Reason}",
                     message.Envelope.MessageId,
                     decision.Reason);
-                await message.AcknowledgeAsync(ct).ConfigureAwait(false);
+                await message.AcknowledgeAsync(settleCt).ConfigureAwait(false);
                 break;
         }
     }
@@ -556,7 +559,7 @@ internal sealed class PartitionRouter
             {
                 await foreach (var (message, handler) in channel.Reader.ReadAllAsync().ConfigureAwait(false))
                     await handler(message, CancellationToken.None).ConfigureAwait(false);
-            });
+            }, CancellationToken.None);
         }
     }
 

@@ -99,8 +99,9 @@ public sealed class WorkflowInstanceRunner
         public Guid NewGuid() => Guid.NewGuid();
         public void ContinueAsNew(object input)
         {
-            // Append history synchronously for demo; real engine would reset execution
-            store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], CancellationToken.None).AsTask().Wait();
+            // Синхронный фасад: реальный движок делает ресет исполнения; Wait() — дедлок под SynchronizationContext.
+            // Используем GetAwaiter().GetResult() с ConfigureAwait(false) вне контекста.
+            store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
         }
 
         public Task SleepUntil(DateTimeOffset at, CancellationToken ct = default)

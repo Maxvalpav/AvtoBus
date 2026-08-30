@@ -54,7 +54,7 @@ internal sealed class InMemoryQueue(string name, int capacity, TimeProvider time
                     return;
                 }
             }
-            await Task.Delay(10, ct);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), time, ct).ConfigureAwait(false);
         }
     }
 
@@ -111,7 +111,11 @@ internal sealed class InMemoryQueue(string name, int capacity, TimeProvider time
         return false;
     }
 
-    public ValueTask<bool> WaitToReadAsync(CancellationToken ct) => new(_signal.WaitAsync(ct).IsCompletedSuccessfully);
+    public async ValueTask<bool> WaitToReadAsync(CancellationToken ct)
+    {
+        await _signal.WaitAsync(ct).ConfigureAwait(false);
+        return true;
+    }
 
     public void Complete() { }
 

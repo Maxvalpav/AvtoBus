@@ -125,14 +125,14 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                     {
                         _log.LogWarning(ex, "Outbox-отправка не удалась для {MessageId}", m.MessageId);
                         lock (failed) failed.Add((m.Id, ex.Message));
-                        break;
+                        continue;
                     }
                 }
             });
 
-        if (sent.Count > 0)
+        if (sent.Count > 0 || failed.Count > 0)
         {
-            Interlocked.Add(ref _pending, -sent.Count);
+            Interlocked.Add(ref _pending, -(sent.Count + failed.Count));
 
             // Маркировка — идемпотентная фиксация уже отправленного факта: завершаем её даже при
             // остановке, иначе сообщение «отправлено, но SentAt не проставлен» вернётся дублем.

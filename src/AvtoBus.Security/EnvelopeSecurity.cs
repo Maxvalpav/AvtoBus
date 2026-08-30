@@ -112,6 +112,7 @@ internal sealed class RateLimiter(int permitsPerSecond)
         if (permitsPerSecond <= 0)
             return;
 
+        long waitMs = 0;
         lock (this)
         {
             var nowTicks = Environment.TickCount64;
@@ -122,13 +123,12 @@ internal sealed class RateLimiter(int permitsPerSecond)
             }
 
             if (_counter >= permitsPerSecond)
-            {
-                var waitMs = 1000 - (nowTicks - _windowStartTicks);
-                if (waitMs > 0)
-                    Thread.Sleep((int)waitMs);
-            }
+                waitMs = 1000 - (nowTicks - _windowStartTicks);
 
             _counter++;
         }
+
+        if (waitMs > 0)
+            Thread.Sleep((int)waitMs);
     }
 }
