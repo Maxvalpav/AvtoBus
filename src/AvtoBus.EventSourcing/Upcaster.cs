@@ -38,11 +38,16 @@ public sealed class UpcasterChain
     {
         var current = @event;
         var version = schemaVersion;
+        var visited = new HashSet<(string, int)>();
 
         while (_chain.TryGetValue((eventType, version), out var upcaster))
         {
+            if (!visited.Add((eventType, version)))
+                throw new InvalidOperationException($"Upcaster cycle detected at {eventType} v{version}");
             current = upcaster.Upcast(current);
             version = upcaster.ToVersion;
+            if (visited.Count > 100)
+                throw new InvalidOperationException($"Upcaster chain too long for {eventType} v{schemaVersion} — possible infinite loop");
         }
 
         return current;

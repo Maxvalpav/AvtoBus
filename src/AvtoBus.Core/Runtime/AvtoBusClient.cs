@@ -13,7 +13,8 @@ public sealed class AvtoBusClient(
     EnvelopeFactory envelopes,
     ReplyRouter replies,
     MessageRegistry registry,
-    IUniqueStore? uniqueStore = null) : IBus
+    IUniqueStore? uniqueStore = null,
+    AvtoBus.ClaimCheck.ClaimCheckService? claimCheck = null) : IBus
 {
     public ValueTask PublishAsync<T>(T @event, PublishOptions? options = null, CancellationToken ct = default)
         where T : class
@@ -68,11 +69,14 @@ public sealed class AvtoBusClient(
 
     public ValueTask CancelScheduledAsync(ScheduledToken token, CancellationToken ct = default)
     {
-        // Отмена — свойство транспорта: не каждый брокер умеет снять уже принятое сообщение.
         foreach (var transport in transports.All)
         {
-            if (transport is IScheduleCancellable cancellable)
-                cancellable.CancelScheduled(token.Value);
+            try
+            {
+                if (transport is IScheduleCancellable cancellable)
+                    cancellable.CancelScheduled(token.Value);
+            }
+            catch { /* best effort per-transport */ }
         }
 
         return ValueTask.CompletedTask;
@@ -96,9 +100,11 @@ public sealed class AvtoBusClient(
             var explicitKey = messageOptions?.Headers.TryGetValue("avtobus.unique-key", out var k) == true ? k : null;
             if (explicitKey is not null)
             {
-                var ttlSec = messageOptions!.Headers.TryGetValue("avtobus.unique-ttl", out var ttlStr) && double.TryParse(ttlStr, out var sec) ? TimeSpan.FromSeconds(sec) : TimeSpan.FromSeconds(30);
-                if (!uniqueStore.TryAcquire(explicitKey, ttlSec))
-                    return; // skip duplicate silently как Oban
+                var ttl = TimeSpan.FromSeconds(30);
+                if (messageOptions!.Headers.TryGetValue("avtobus.unique-ttl", out var ttlStr) && double.TryParse(ttlStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms) && double.IsFinite(ms) && ms > 0 && ms <= int.MaxValue)
+                    ttl = TimeSpan.FromMilliseconds(ms);
+                if (!uniqueStore.TryAcquire(explicitKey, ttl))
+                    return;
             }
             else
             {
@@ -106,6 +112,11 @@ public sealed class AvtoBusClient(
                 if (attr is not null)
                 {
                     var dest = ResolveDestination(messageType, kind, messageOptions, parent);
+                    // Apply tenant isolation before dedup key — cross-tenant same payload must not dedupe
+                    if (options.TenantIsolationPolicy is { } iso && messageOptions?.TenantId is { } tid)
+                        dest = iso.Isolate(dest, tid);
+                    else if (options.TenantIsolationPolicy is { } iso2 && TenantContext.Get() is { } tid2)
+                        dest = iso2.Isolate(dest, tid2);
                     var key = UniqueKeyComputer.Compute(message, messageType, dest.Name ?? dest.ToString() ?? "", attr);
                     if (!uniqueStore.TryAcquire(key, attr.Period))
                     {
@@ -119,6 +130,9 @@ public sealed class AvtoBusClient(
 
         var (envelope, destination, transportName, activity) = Prepare(message, messageType, kind, messageOptions, parent);
         using var _ = activity;
+
+        if (claimCheck is not null)
+            envelope = await claimCheck.ExternalizeAsync(envelope, ct).ConfigureAwait(false);
 
         var transport = transports.Get(messageOptions?.Transport ?? transportName);
 
@@ -154,17 +168,15 @@ public sealed class AvtoBusClient(
 
         var envelope = envelopes.Create(message, messageType, messageOptions, parent);
 
-        // Data-residency: запрещённый маршрут между регионами блокируется ДО отправки в транспорт (идея 467).
+        // Изоляция тенантов на уровне хранилища (идея 462, уровень B/C): destination
+        if (options.TenantIsolationPolicy is { } isolation && envelope.TenantId is { } tenantId2)
+            destination = isolation.Isolate(destination, tenantId2);
+
+        // Data-residency after isolation — validate actual physical destination
         options.RegionPolicy?.Validate(envelope, destination);
 
-        // Изоляция тенантов на уровне хранилища (идея 462, уровень B/C): destination
-        // переписывается так, чтобы тенант физически не делил очередь/неймспейс с другими.
-        if (options.TenantIsolationPolicy is { } isolation && envelope.TenantId is { } tenantId)
-            destination = isolation.Isolate(destination, tenantId);
-
-        // Ответ адресуется конкретному запросу: получатель найдёт ожидающего по CausationId.
-        if (kind is OutgoingKind.Respond && parent is not null)
-            envelope = envelope with { CausationId = parent.MessageId, CorrelationId = parent.CorrelationId };
+        // Ответ адресуется конкретному запросу: CausationId/CorrelationId уже проставлены
+        // EnvelopeFactory.Create(parent) до подписи — мутация после ProtectOutbound ломает HMAC.
 
         return (envelope, destination, ResolveTransportName(messageType, kind), activity);
     }

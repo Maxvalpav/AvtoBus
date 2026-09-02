@@ -34,6 +34,12 @@ public sealed class CircuitBreaker(int threshold, TimeSpan duration, TimeProvide
         }
     }
 
+    /// <summary>Детерминированный снапшот без побочного перехода Open→HalfOpen (для health checks).</summary>
+    public CircuitState RawState
+    {
+        get { lock (_gate) return _state; }
+    }
+
     /// <summary>Можно ли сейчас обрабатывать сообщение.</summary>
     public bool CanProcess()
     {

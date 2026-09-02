@@ -28,7 +28,11 @@ public sealed class DefaultAuthorizer : IAuthorizer
         ConsumeContext context)
     {
         if (principal is null)
+        {
+            // Если требуются конкретные роли — анонимный не проходит, даже если RequireAuthenticated == false
+            if (requirement.Roles.Length > 0) return ValueTask.FromResult(false);
             return ValueTask.FromResult(!requirement.RequireAuthenticated);
+        }
 
         var roles = requirement.Roles;
         var inRole = roles.Length == 0 || roles.Any(principal.IsInRole);

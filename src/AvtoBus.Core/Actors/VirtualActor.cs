@@ -37,11 +37,37 @@ public abstract class VirtualActor<TState> : IActor where TState : class, new()
     public required ActorId Id { get; init; }
     protected TState State { get; set; } = new();
     private readonly List<(string name, TimeSpan due, TimeSpan period)> _reminders = [];
+    private readonly SemaphoreSlim _mailbox = new(1, 1);
 
-    protected void RegisterReminder(string name, TimeSpan dueTime, TimeSpan period) => _reminders.Add((name, dueTime, period));
-    protected void UnregisterReminder(string name) => _reminders.RemoveAll(r => r.name == name);
+    private readonly Dictionary<string, CancellationTokenSource> _reminderCts = new();
+    protected void RegisterReminder(string name, TimeSpan dueTime, TimeSpan period)
+    {
+        UnregisterReminder(name);
+        var cts = new CancellationTokenSource();
+        _reminderCts[name] = cts;
+        _reminders.RemoveAll(r => r.name == name);
+        _reminders.Add((name, dueTime, period));
+        _ = RunReminderAsync(name, dueTime, period, cts.Token);
+    }
+    protected void UnregisterReminder(string name)
+    {
+        if (_reminderCts.Remove(name, out var cts)) { cts.Cancel(); cts.Dispose(); }
+        _reminders.RemoveAll(r => r.name == name);
+    }
+    private async Task RunReminderAsync(string name, TimeSpan due, TimeSpan period, CancellationToken ct)
+    {
+        try { await Task.Delay(due, ct).ConfigureAwait(false);
+              while (!ct.IsCancellationRequested) { await OnReminderAsync(name, ct).ConfigureAwait(false); await Task.Delay(period, ct).ConfigureAwait(false); } }
+        catch (OperationCanceledException) { }
+    }
 
-    public abstract Task ReceiveAsync(object message, CancellationToken ct);
+    public async Task ReceiveAsync(object message, CancellationToken ct)
+    {
+        await _mailbox.WaitAsync(ct).ConfigureAwait(false);
+        try { await ReceiveCoreAsync(message, ct).ConfigureAwait(false); }
+        finally { _mailbox.Release(); }
+    }
+    protected abstract Task ReceiveCoreAsync(object message, CancellationToken ct);
     public virtual Task OnActivateAsync(CancellationToken ct) => Task.CompletedTask;
     public virtual Task OnDeactivateAsync(CancellationToken ct) => Task.CompletedTask;
     public virtual Task OnReminderAsync(string name, CancellationToken ct) => Task.CompletedTask;

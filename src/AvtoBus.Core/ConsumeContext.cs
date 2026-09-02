@@ -84,6 +84,8 @@ public class ConsumeContext
     /// <summary>Отложенная отправка как каскад.</summary>
     public ValueTask ScheduleAsync<T>(T message, TimeSpan delay) where T : class
     {
+        // Используем системное время для ScheduleAsync каскада — TimeProvider доступен via EnvelopeFactory для точного времени создания;
+        // здесь UtcNow достаточен т.к. задержка относительная, но можно было бы инжектить TimeProvider.
         var options = new SendOptions { DeliverAt = DateTimeOffset.UtcNow + delay };
         Enqueue(new OutgoingMessage(message, OutgoingKind.Send, options));
         return ValueTask.CompletedTask;

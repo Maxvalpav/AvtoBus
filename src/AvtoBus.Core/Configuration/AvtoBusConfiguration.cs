@@ -88,14 +88,43 @@ public sealed class AvtoBusConfigValidator : IValidateOptions<AvtoBusConfigurati
         if (options.CircuitBreakerThreshold < 0)
             errors.Add($"{AvtoBusConfiguration.SectionName}:CircuitBreakerThreshold must be >= 0.");
 
-        if (options.MaxHeaderBytes < 0)
-            errors.Add($"{AvtoBusConfiguration.SectionName}:MaxHeaderBytes must be >= 0.");
+        if (options.MaxHeaderBytes < 256)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:MaxHeaderBytes must be >= 256.");
 
-        if (options.MaxHeaderCount < 0)
-            errors.Add($"{AvtoBusConfiguration.SectionName}:MaxHeaderCount must be >= 0.");
+        if (options.MaxHeaderCount < 1)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:MaxHeaderCount must be >= 1.");
 
         if (options.MaxHops < 1)
             errors.Add($"{AvtoBusConfiguration.SectionName}:MaxHops must be >= 1.");
+
+        if (options.CircuitBreakerDurationSeconds <= 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:CircuitBreakerDurationSeconds must be > 0.");
+
+        if (options.DefaultRequestTimeoutSeconds <= 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:DefaultRequestTimeoutSeconds must be > 0.");
+
+        if (options.ShutdownDrainTimeoutSeconds < 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:ShutdownDrainTimeoutSeconds must be >= 0.");
+
+        if (options.CanaryIntervalSeconds <= 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:CanaryIntervalSeconds must be > 0.");
+
+        if (options.CanaryTimeoutSeconds <= 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:CanaryTimeoutSeconds must be > 0.");
+
+        if (options.TrafficAnomalyWindowSeconds <= 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:TrafficAnomalyWindowSeconds must be > 0.");
+
+        if (options.InboxWindowHours < 0)
+            errors.Add($"{AvtoBusConfiguration.SectionName}:InboxWindowHours must be >= 0.");
+
+        foreach (var (qName, cap) in options.LocalQueues)
+        {
+            if (string.IsNullOrWhiteSpace(qName))
+                errors.Add($"{AvtoBusConfiguration.SectionName}:LocalQueues key must not be empty.");
+            if (cap <= 0)
+                errors.Add($"{AvtoBusConfiguration.SectionName}:LocalQueues[{qName}] capacity must be > 0.");
+        }
 
         if (options.Recoverability.ImmediateRetries < 0)
             errors.Add($"{AvtoBusConfiguration.SectionName}:Recoverability:ImmediateRetries must be >= 0.");

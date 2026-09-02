@@ -40,6 +40,28 @@ public sealed class SecurityOptions
     public void UseGeneratedKeys() => Keys = SecurityKeys.Random();
 
     public void UseKeys(SecurityKeys keys) => Keys = keys;
+
+    /// <summary>mTLS для транспорта (идея 452+): проверка клиентского сертификата.</summary>
+    public TlsOptions? Tls { get; set; }
+
+    /// <summary>Allowlist типов десериализации — если задан, неизвестный тип сразу уходит в DLQ без рефлексии.</summary>
+    public AllowlistOptions? Allowlist { get; set; }
+}
+
+public sealed class TlsOptions
+{
+    public bool RequireClientCertificate { get; set; }
+    public string? CaThumbprint { get; set; }
+    public string? AllowedSubjectPrefix { get; set; }
+    public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+}
+
+public sealed class AllowlistOptions
+{
+    public HashSet<string> AllowedTypes { get; } = new(StringComparer.Ordinal);
+    public bool FailClosed { get; set; } = true;
+    public AllowlistOptions Allow(params string[] types) { foreach (var t in types) AllowedTypes.Add(t); return this; }
+    public bool IsAllowed(string messageType) => AllowedTypes.Count == 0 || AllowedTypes.Contains(messageType);
 }
 
 /// <summary>Специальные ключи, замороженные в конфигурации (для тестов и мульти-инстанс отладки).</summary>

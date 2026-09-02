@@ -26,6 +26,7 @@ public sealed record WaitRecord(string ExpectedType, TimeSpan? Timeout, string? 
 /// <summary>Журнал одной саги: записи шагов/ожиданий, компенсации и исход.</summary>
 public sealed class SagaJournal
 {
+    private readonly object _gate = new();
     private readonly List<JournalRecord> _records = [];
     private readonly List<Func<Task>> _compensations = [];
 
@@ -48,7 +49,7 @@ public sealed class SagaJournal
     public SagaJournal(Type sagaType, string correlationKey, object? triggerObject)
         => (SagaType, CorrelationKey, TriggerObject) = (sagaType, correlationKey, triggerObject);
 
-    internal void Append(JournalRecord record) => _records.Add(record);
+    internal void Append(JournalRecord record) { lock (_gate) _records.Add(record); }
 
     /// <summary>Мутируемый список записей — для replay-контекста и привязки входящих к WaitRecord.</summary>
     internal List<JournalRecord> RecordsInternal => _records;
@@ -57,15 +58,14 @@ public sealed class SagaJournal
     {
         if (record is not null)
             Append(record);
-
         UpdatedAt = DateTime.UtcNow;
     }
 
     internal void MarkSuspended() => Outcome = SagaOutcome.Suspended;
 
-    internal void RegisterCompensation(Func<Task> compensate) => _compensations.Add(compensate);
+    internal void RegisterCompensation(Func<Task> compensate) { lock (_gate) _compensations.Add(compensate); }
 
-    internal void MarkComplete() => Outcome = SagaOutcome.Completed;
+    internal void MarkComplete() { Outcome = SagaOutcome.Completed; lock (_gate) _compensations.Clear(); }
 
     internal void MarkAborted() => Outcome = SagaOutcome.Aborted;
 
@@ -298,7 +298,8 @@ public sealed class DurableSagaRunner
 
     public async Task<SagaOutcome> DispatchAsync(Type sagaType, object message, string correlationKey, ConsumeContext? consume = null)
     {
-        var journal = await _store.LoadOrCreateAsync(sagaType, correlationKey, message, CancellationToken.None)
+        var ct = consume?.CancellationToken ?? CancellationToken.None;
+        var journal = await _store.LoadOrCreateAsync(sagaType, correlationKey, message, ct)
             .ConfigureAwait(false);
 
         // Первый пришедший объект становится триггером; повторные запуски реплеют его же.
@@ -307,7 +308,7 @@ public sealed class DurableSagaRunner
             journal.TriggerObject = trigger;
 
         // Привязка входящего сообщения к ближайшему ожидающему WaitRecord того же типа.
-        BindIncoming(journal, message, consume?.CancellationToken ?? CancellationToken.None);
+        BindIncoming(journal, message, ct);
 
         // Replay саги с начала: шаги воспроизводятся из журнала, новые выполняются.
         var ctx = new DurableSagaContext(journal, _bus, consume);
@@ -329,7 +330,7 @@ public sealed class DurableSagaRunner
             journal.MarkAborted();
         }
 
-        await _store.SaveAsync(journal, CancellationToken.None).ConfigureAwait(false);
+        await _store.SaveAsync(journal, ct).ConfigureAwait(false);
         return journal.Outcome;
     }
 

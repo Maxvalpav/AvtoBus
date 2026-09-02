@@ -60,6 +60,12 @@ public sealed record Envelope
         var headers = new Dictionary<string, string>(Headers, StringComparer.Ordinal) { [name] = value };
         return this with { Headers = headers.ToFrozenDictionary(StringComparer.Ordinal) };
     }
+    public Envelope WithHeaders(IEnumerable<KeyValuePair<string, string>> headers)
+    {
+        var d = new Dictionary<string, string>(Headers, StringComparer.Ordinal);
+        foreach (var kv in headers) d[kv.Key] = kv.Value;
+        return this with { Headers = d.ToFrozenDictionary(StringComparer.Ordinal) };
+    }
 
     public Envelope NextAttempt() => this with { DeliveryAttempt = DeliveryAttempt + 1 };
 }
@@ -71,28 +77,29 @@ public sealed record Envelope
 /// </summary>
 public static class InitiatorContext
 {
-    private static readonly AsyncLocal<string?> Current = new();
+    private static readonly AsyncLocal<Stack<string?>?> StackHolder = new();
 
-    /// <summary>Устанавливает текущего инициатора (например, из middleware ASP.NET по claim-у).</summary>
     public static IDisposable Push(string? initiator)
     {
-        var previous = Current.Value;
-        Current.Value = initiator;
-        return new PopOnDispose(previous);
+        var prev = StackHolder.Value;
+        var next = prev is null ? new Stack<string?>() : new Stack<string?>(prev.Reverse());
+        next.Push(initiator);
+        StackHolder.Value = next;
+        return new PopOnDispose(prev);
     }
 
-    public static string? Get() => Current.Value;
+    public static string? Get() => StackHolder.Value is { Count: > 0 } st ? st.Peek() : null;
 
-    private sealed class PopOnDispose(string? previous) : IDisposable
+    private sealed class PopOnDispose : IDisposable
     {
+        private readonly Stack<string?>? _previous;
         private bool _disposed;
-
+        public PopOnDispose(Stack<string?>? previous) => _previous = previous;
         public void Dispose()
         {
-            if (_disposed)
-                return;
+            if (_disposed) return;
             _disposed = true;
-            Current.Value = previous;
+            StackHolder.Value = _previous;
         }
     }
 }
@@ -104,29 +111,23 @@ public static class InitiatorContext
 /// </summary>
 public static class TenantContext
 {
-    private static readonly AsyncLocal<string?> Current = new();
-
+    private static readonly AsyncLocal<Stack<string?>?> StackHolder = new();
     /// <summary>Устанавливает текущего тенанта (например, из middleware ASP.NET по claim/header).</summary>
     public static IDisposable Push(string? tenantId)
     {
-        var previous = Current.Value;
-        Current.Value = tenantId;
-        return new PopOnDispose(previous);
+        var prev = StackHolder.Value;
+        var next = prev is null ? new Stack<string?>() : new Stack<string?>(prev.Reverse());
+        next.Push(tenantId);
+        StackHolder.Value = next;
+        return new PopOnDispose(prev);
     }
-
-    public static string? Get() => Current.Value;
-
-    private sealed class PopOnDispose(string? previous) : IDisposable
+    public static string? Get() => StackHolder.Value is { Count: > 0 } st ? st.Peek() : null;
+    private sealed class PopOnDispose : IDisposable
     {
+        private readonly Stack<string?>? _previous;
         private bool _disposed;
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            Current.Value = previous;
-        }
+        public PopOnDispose(Stack<string?>? previous) => _previous = previous;
+        public void Dispose() { if (_disposed) return; _disposed = true; StackHolder.Value = _previous; }
     }
 }
 
@@ -152,6 +153,9 @@ public static class BusHeaders
 
     /// <summary>Подписанный контекст пользователя: сериализованный ClaimsPrincipal (идея 454).</summary>
     public const string User = "avtobus-user";
+
+    public const string TraceParent = "traceparent";
+    public const string TraceState = "tracestate";
 }
 
 /// <summary>

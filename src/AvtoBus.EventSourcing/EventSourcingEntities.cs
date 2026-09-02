@@ -18,6 +18,7 @@ public sealed class EsEvent
     public Guid? CausationId { get; set; }
     public string? TenantId { get; set; }
     public string? PrevHash { get; set; }
+    public string? SubjectId { get; set; }
 }
 
 public sealed class EsStream
@@ -60,6 +61,7 @@ public static class EventSourcingModelBuilder
             e.HasIndex(x => new { x.StreamId, x.Version }).IsUnique();
             e.HasIndex(x => new { x.EventType, x.GlobalSequence });
             e.HasIndex(x => new { x.StreamType, x.GlobalSequence });
+            e.HasIndex(x => x.SubjectId);
             e.Property(x => x.Metadata).HasColumnType("jsonb");
         });
 

@@ -14,7 +14,7 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
 
     public InboxDedupMiddleware(string consumerId) => _consumerId = consumerId;
 
-    [Obsolete("Use InboxDedupMiddleware(string consumerId) — IServiceScopeFactory больше не нужен, inbox теперь в том же скоупе что хендлер.")]
+    [Obsolete("Use InboxDedupMiddleware(string consumerId) — IServiceScopeFactory больше не нужен, inbox теперь в том же скоупе что хендлер.", DiagnosticId = "AVB0001", UrlFormat = "https://avtobus.io/docs/15-implementation-outbox#inbox")]
     public InboxDedupMiddleware(IServiceScopeFactory _, string consumerId) : this(consumerId) { }
 
     public async ValueTask InvokeAsync(ConsumeContext ctx, BusDelegate next)

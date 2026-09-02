@@ -19,7 +19,7 @@ public static class RedisBusExtensions
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<RedisTransport>());
 
-        bus.Options.DefaultTransport = "redis";
+        bus.TrySetDefaultTransport("redis");
         return bus;
     }
 }

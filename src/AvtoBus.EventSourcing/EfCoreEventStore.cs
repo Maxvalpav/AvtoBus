@@ -271,16 +271,11 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         if (inner.GetType().Name == "PostgresException")
         {
             var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
-            if (sqlState == "23505")
-            {
-                var constraint = inner.GetType().GetProperty("ConstraintName")?.GetValue(inner) as string;
-                if (constraint is not null)
-                    return constraint.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
-                // Fallback strict: only if message contains our constraint
-                return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
-            }
-            return false;
+            if (sqlState == "23505") return true; // any unique violation → concurrency (stream version)
         }
-        return inner.Message.Contains("uq_stream_version", StringComparison.OrdinalIgnoreCase);
+        // Fallback generic: SQLite / other providers
+        return inner.Message.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase)
+            || inner.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+            || inner.Message.Contains("uq_stream", StringComparison.OrdinalIgnoreCase);
     }
 }

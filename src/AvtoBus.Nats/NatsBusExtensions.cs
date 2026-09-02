@@ -19,7 +19,7 @@ public static class NatsBusExtensions
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<NatsTransport>());
 
-        bus.Options.DefaultTransport = "nats";
+        bus.TrySetDefaultTransport("nats");
         return bus;
     }
 }

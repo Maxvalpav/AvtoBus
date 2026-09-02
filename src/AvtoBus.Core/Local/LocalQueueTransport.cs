@@ -108,10 +108,8 @@ public sealed class LocalQueueTransport : ITransport, AvtoBus.Observability.IQue
                 await Task.Delay(TimeSpan.FromMilliseconds(20), _time, _shutdown.Token).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Штатная остановка.
-        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
     }
 
     private int _disposed;
@@ -192,6 +190,7 @@ internal sealed class LocalQueue(string name, int capacity, TimeProvider time)
 
     /// <summary>Сообщения, ожидающие наступления <see cref="Envelope.DeliverAt"/>.</summary>
     private readonly List<Envelope> _delayed = [];
+    private const int MaxDelayed = 10_000;
 
     private readonly Lock _delayedGate = new();
 
@@ -217,7 +216,11 @@ internal sealed class LocalQueue(string name, int capacity, TimeProvider time)
         if (!envelope.IsDue(now))
         {
             lock (_delayedGate)
+            {
+                if (_delayed.Count >= MaxDelayed)
+                    throw new InvalidOperationException($"Delayed queue '{Name}' overflow: {MaxDelayed} messages pending, throttling sender.");
                 _delayed.Add(envelope);
+            }
             return;
         }
 

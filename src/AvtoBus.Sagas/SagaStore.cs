@@ -47,6 +47,7 @@ public sealed class SagaConcurrencyException(Guid instanceId, int expectedVersio
 public sealed class InMemorySagaStore : ISagaStore
 {
     private readonly ConcurrentDictionary<(Type SagaType, string Key), Entry> _rows = [];
+    private readonly ConcurrentDictionary<Guid, (Type SagaType, string Key)> _byInstance = new();
 
     private sealed class Entry(object state, int version, Guid instanceId)
     {
@@ -84,7 +85,7 @@ public sealed class InMemorySagaStore : ISagaStore
             var added = _rows.TryAdd(key, new Entry(state, 1, instanceId));
             if (!added)
                 throw new SagaConcurrencyException(instanceId, 0);
-
+            _byInstance[instanceId] = key;
             return ValueTask.CompletedTask;
         }
 
@@ -99,21 +100,31 @@ public sealed class InMemorySagaStore : ISagaStore
 
             var replacement = new Entry(state, existing.Version + 1, instanceId);
             if (_rows.TryUpdate(key, replacement, existing))
+            {
+                _byInstance[instanceId] = key;
                 return ValueTask.CompletedTask;
+            }
         }
     }
 
     public ValueTask CompleteAsync(Type sagaType, Guid instanceId, CancellationToken ct = default)
     {
-        foreach (var key in _rows.Keys)
+        if (_byInstance.TryRemove(instanceId, out var key))
         {
-            if (key.SagaType != sagaType)
-                continue;
-
-            if (_rows.TryGetValue(key, out var entry) && entry.InstanceId == instanceId)
-                _rows.TryRemove(key, out _);
+            _rows.TryRemove(key, out _);
+            return ValueTask.CompletedTask;
         }
-
+        // Fallback O(N) для старых записей без индекса
+        foreach (var k in _rows.Keys)
+        {
+            if (k.SagaType != sagaType) continue;
+            if (_rows.TryGetValue(k, out var entry) && entry.InstanceId == instanceId)
+            {
+                _rows.TryRemove(k, out _);
+                _byInstance.TryRemove(instanceId, out _);
+                break;
+            }
+        }
         return ValueTask.CompletedTask;
     }
 }

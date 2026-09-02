@@ -145,19 +145,9 @@ public sealed class RecoverabilitySettings
     /// </summary>
     public RetryClass Classify(Exception exception)
     {
-        // Явный бизнес-отказ ретраить нельзя ни при каких настройках.
-        if (exception is MessageRejectedException)
-            return RetryClass.Permanent;
-
-        // Авторизация не станет успешной от повторов — principal не изменится (идея 453).
-        if (exception is AvtoBus.Pipeline.UnauthorizedMessageException)
-            return RetryClass.Permanent;
-
-        if (exception is OperationCanceledException)
-            return RetryClass.Transient;
-
         var type = exception.GetType();
 
+        // Пользовательские маппинги имеют приоритет, даже над хардкодами
         foreach (var (mapped, retryClass) in _exceptionMap)
         {
             if (mapped == type)
@@ -169,6 +159,22 @@ public sealed class RecoverabilitySettings
             if (mapped.IsAssignableFrom(type))
                 return retryClass;
         }
+
+        if (exception is InvalidDataException or NotSupportedException)
+            return RetryClass.Permanent;
+
+        if (exception is MessageRejectedException)
+            return RetryClass.Permanent;
+
+        if (exception is AvtoBus.Pipeline.UnauthorizedMessageException)
+            return RetryClass.Permanent;
+
+        if (exception is OperationCanceledException)
+            return RetryClass.Transient;
+
+        // Fail-open: неизвестные критичные исключения (OOM, StackOverflow) не должны ретраиться
+        if (exception is OutOfMemoryException or StackOverflowException or RegionViolationException)
+            return RetryClass.Permanent;
 
         return RetryClass.Transient;
     }

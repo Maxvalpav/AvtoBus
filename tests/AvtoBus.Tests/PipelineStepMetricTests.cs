@@ -32,7 +32,7 @@ public class PipelineStepMetricTests
         // Recorder ставится харнессом автоматически — ждём именно его шаг: чужой шаг из
         // параллельного харнесса не должен считаться нашим (чанолевая память step-двумерной).
         Assert.True(await harness.WaitUntilAsync(
-            () => steps.Any(s => s.Step == "RecordingMiddleware" && s.Type == "OrderPlaced"),
+            () => steps.Any(s => s.Step == "RecordingMiddleware" && s.Type.Contains("order-placed", StringComparison.OrdinalIgnoreCase)),
             TimeSpan.FromSeconds(10)),
             "no pipeline step samples. Got: " + string.Join(", ", steps));
     }

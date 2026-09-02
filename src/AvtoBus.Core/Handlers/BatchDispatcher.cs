@@ -97,7 +97,9 @@ internal static class BatchHandlerBinder
 
             arguments[i] = parameterType switch
             {
-                _ when parameterType == typeof(CancellationToken) => Expression.Constant(CancellationToken.None),
+                _ when parameterType == typeof(CancellationToken) => Expression.Property(
+                    Expression.Call(contextsParam, typeof(IReadOnlyList<ConsumeContext>).GetMethod("get_Item")!, Expression.Constant(0)),
+                    typeof(ConsumeContext).GetProperty(nameof(ConsumeContext.CancellationToken))!),
                 _ when parameterType == typeof(IServiceProvider) => servicesParam,
                 _ => Expression.Convert(
                     Expression.Call(

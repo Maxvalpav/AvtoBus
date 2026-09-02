@@ -39,6 +39,7 @@ jobs:
         # поэтому перебираем проекты циклом.
         run: |
           for proj in \
+            src/AvtoBus.Abstractions \
             src/AvtoBus.Core \
             src/AvtoBus.InMemory \
             src/AvtoBus.RabbitMq \
@@ -61,6 +62,13 @@ jobs:
             src/AvtoBus.Testing \
             src/AvtoBus.Aspire \
             src/AvtoBus.Templates \
+            src/AvtoBus.Bridge \
+            src/AvtoBus.Durability.PostgreSql \
+            src/AvtoBus.SchemaRegistry \
+            src/AvtoBus.Streams \
+            src/AvtoBus.Workflow \
+            src/AvtoBus.Serialization.MessagePack \
+            src/AvtoBus.Serialization.Protobuf \
             src/AvtoBus ; do
             dotnet pack "$proj" -c Release --no-build /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
           done

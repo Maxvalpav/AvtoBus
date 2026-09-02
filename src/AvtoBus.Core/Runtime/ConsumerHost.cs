@@ -306,7 +306,8 @@ public sealed class ConsumerRunner(
     public long Failed => Interlocked.Read(ref _failed);
 
     /// <summary>Пауза консьюмера без рестарта процесса (идея 36).</summary>
-    public bool IsPaused { get; set; }
+    private volatile bool _isPaused;
+    public bool IsPaused { get => _isPaused; set => _isPaused = value; }
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -318,7 +319,7 @@ public sealed class ConsumerRunner(
 
         // Партиционированная обработка: сообщения одного ключа идут строго последовательно (идея 25).
         var router = partitions > 0
-            ? new PartitionRouter(partitions, subscription.Settings!.PartitionKeySelector)
+            ? new PartitionRouter(partitions, subscription.Settings!.PartitionKeySelector, logger: logger)
             : null;
         _router = router;
 
@@ -339,11 +340,11 @@ public sealed class ConsumerRunner(
 
                 await _inFlight.WaitAsync(receive.Token).ConfigureAwait(false);
 
-                _ = HandleAsync(message, ct).ContinueWith(
-                    _ => _inFlight.Release(),
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+                _ = Task.Run(async () =>
+                {
+                    try { await HandleAsync(message, ct).ConfigureAwait(false); }
+                    finally { _inFlight.Release(); }
+                }, CancellationToken.None);
             }
         }
         catch (OperationCanceledException) when (receive.IsCancellationRequested)
@@ -380,9 +381,19 @@ public sealed class ConsumerRunner(
         }
         catch (Exception exception)
         {
-            // Сюда попадаем только при сбое самого транспорта: processor исключений не выпускает.
+            // Гарантируем settlement даже если процессор выбросил (дефект): иначе сообщение зависнет unacked.
             logger.LogError(exception, "Сбой транспорта при обработке сообщения из {Source}", source.Name);
             _breaker.RecordFailure();
+            try
+            {
+                var fallback = ProcessingDecision.Poison($"transport failure: {exception.Message}");
+                await ApplyAsync(message, fallback, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex2)
+            {
+                logger.LogError(ex2, "Не удалось отправить poison для {Source}", source.Name);
+                try { await message.RejectAsync(requeue: false, CancellationToken.None).ConfigureAwait(false); } catch { }
+            }
         }
     }
 
@@ -459,19 +470,20 @@ public sealed class ConsumerRunner(
         string suffix,
         CancellationToken ct)
     {
-        var enriched = message.Envelope
-            .WithHeader(BusHeaders.DeadLetterReason, decision.Reason ?? "unspecified")
-            .WithHeader(BusHeaders.FailedQueue, source.Name)
-            .WithHeader(BusHeaders.FailedAt, time.GetUtcNow().ToString("O"))
-            .WithHeader(BusHeaders.OriginalDestination, source.ToString());
-
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new(BusHeaders.DeadLetterReason, decision.Reason ?? "unspecified"),
+            new(BusHeaders.FailedQueue, source.Name),
+            new(BusHeaders.FailedAt, time.GetUtcNow().ToString("O")),
+            new(BusHeaders.OriginalDestination, source.ToString()),
+        };
         if (decision.Exception is { } exception)
         {
-            enriched = enriched
-                .WithHeader(BusHeaders.ExceptionType, exception.GetType().FullName ?? exception.GetType().Name)
-                .WithHeader(BusHeaders.ExceptionMessage, exception.Message)
-                .WithHeader(BusHeaders.ExceptionStackTrace, exception.StackTrace ?? string.Empty);
+            headers.Add(new(BusHeaders.ExceptionType, exception.GetType().FullName ?? exception.GetType().Name));
+            headers.Add(new(BusHeaders.ExceptionMessage, exception.Message));
+            headers.Add(new(BusHeaders.ExceptionStackTrace, exception.StackTrace ?? string.Empty));
         }
+        var enriched = message.Envelope.WithHeaders(headers);
 
         await subscription.Transport
             .SendAsync(enriched, TransportDestination.Queue($"{source.Name}.{suffix}"), ct)
@@ -509,26 +521,29 @@ public sealed class ConsumerRunner(
     /// <summary>Дожидается завершения обработок, начатых до остановки.</summary>
     public async Task DrainAsync(CancellationToken ct)
     {
-        // Партиционированный роутер держит «слоты» в своих воркерах: ждём их напрямую.
         if (_router is not null)
         {
             await _router.DrainAsync(ct).ConfigureAwait(false);
             return;
         }
 
-        var slots = subscription.Settings?.MaxParallelism ?? 1;
-
-        for (var i = 0; i < slots; i++)
+        var maxParallelism = subscription.Settings?.MaxParallelism ?? 1;
+        var acquired = 0;
+        try
         {
-            try
+            for (var i = 0; i < maxParallelism; i++)
             {
                 await _inFlight.WaitAsync(ct).ConfigureAwait(false);
+                acquired++;
             }
-            catch (OperationCanceledException)
-            {
-                logger.LogWarning("Дрейн {Consumer} прерван по таймауту", Name);
-                return;
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning("Дрейн {Consumer} прерван по таймауту", Name);
+        }
+        finally
+        {
+            if (acquired > 0) _inFlight.Release(acquired);
         }
     }
 
@@ -550,7 +565,8 @@ internal sealed class PartitionRouter : IAsyncDisposable
     private readonly Task[] _workers;
     private readonly Func<object, string>? _keySelector;
 
-    public PartitionRouter(int partitions, Func<object, string>? keySelector, int boundedCapacity = 100)
+    private readonly CancellationTokenSource _shutdown = new();
+    public PartitionRouter(int partitions, Func<object, string>? keySelector, int boundedCapacity = 100, ILogger? logger = null)
     {
         _keySelector = keySelector;
         _partitions = new Channel<(ITransportMessage, Func<ITransportMessage, CancellationToken, Task>)>[partitions];
@@ -562,10 +578,18 @@ internal sealed class PartitionRouter : IAsyncDisposable
                 new BoundedChannelOptions(boundedCapacity) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
 
             _partitions[i] = channel;
+            var captured = channel;
             _workers[i] = Task.Run(async () =>
             {
-                await foreach (var (message, handler) in channel.Reader.ReadAllAsync().ConfigureAwait(false))
-                    await handler(message, CancellationToken.None).ConfigureAwait(false);
+                await foreach (var (message, handler) in captured.Reader.ReadAllAsync(_shutdown.Token).ConfigureAwait(false))
+                {
+                    try { await handler(message, _shutdown.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { break; }
+                    catch (Exception ex)
+                    {
+                        logger?.LogError(ex, "Partition worker упал, но продолжает работу");
+                    }
+                }
             }, CancellationToken.None);
         }
     }
@@ -586,8 +610,20 @@ internal sealed class PartitionRouter : IAsyncDisposable
     private int PartitionOf(ITransportMessage message)
     {
         var key = message.Envelope.PartitionKey ?? message.Envelope.MessageId.ToString();
-        var hash = (uint)key.GetHashCode(StringComparison.Ordinal);
+        var hash = StableHash(key);
         return (int)(hash % (uint)_partitions.Length);
+    }
+
+    private static uint StableHash(string s)
+    {
+        // FNV-1a 32-bit stable across processes
+        uint h = 2166136261u;
+        foreach (var ch in s)
+        {
+            h ^= ch;
+            h *= 16777619u;
+        }
+        return h;
     }
 
     public void Complete()
@@ -605,5 +641,11 @@ internal sealed class PartitionRouter : IAsyncDisposable
         await Task.WhenAll(_workers).WaitAsync(ct).ConfigureAwait(false);
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public async ValueTask DisposeAsync()
+    {
+        Complete();
+        try { await Task.WhenAll(_workers).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); } catch { }
+        await _shutdown.CancelAsync().ConfigureAwait(false);
+        _shutdown.Dispose();
+    }
 }

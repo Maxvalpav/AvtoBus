@@ -55,11 +55,10 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         var stream = StreamKey(destination);
         var entries = RedisEnvelopeSerializer.ToEntries(envelope);
 
-        await _db.StreamAddAsync(
-            stream,
-            entries,
-            maxLength: _options.MaxStreamLength,
-            useApproximateMaxLength: true).ConfigureAwait(false);
+        if (_options.MaxStreamLength > 0)
+            await _db.StreamAddAsync(stream, entries, maxLength: _options.MaxStreamLength, useApproximateMaxLength: true).ConfigureAwait(false);
+        else
+            await _db.StreamAddAsync(stream, entries).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -162,9 +161,14 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
                 count: _options.BatchSize).ConfigureAwait(false);
 
             if (result.ClaimedEntries.Length == 0)
+            {
+                // No more pending at this cursor — reset to beginning for next cycle
+                _claimCursors[cursorKey] = "0-0";
                 return Array.Empty<StreamEntry>();
+            }
 
-            _claimCursors[cursorKey] = result.ClaimedEntries[^1].Id.ToString();
+            var nextId = result.NextStartId;
+            _claimCursors[cursorKey] = nextId.HasValue ? nextId.ToString() : result.ClaimedEntries[^1].Id.ToString();
             return result.ClaimedEntries;
         }
         catch (RedisException)
@@ -183,7 +187,7 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         }
         catch (InvalidDataException)
         {
-            _db.StreamAcknowledgeAsync(destination.Name, group, entry.Id).ConfigureAwait(false);
+            _ = _db.StreamAcknowledgeAsync(StreamKey(destination), group, entry.Id);
             return null;
         }
     }

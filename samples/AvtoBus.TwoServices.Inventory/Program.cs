@@ -18,6 +18,7 @@ builder.Services.AddAvtoBus(bus =>
         bus.UseInMemory();
 
     bus.Recoverability(r => r.ImmediateRetries(2).DelayedRetries(2, Backoff.Linear(TimeSpan.FromSeconds(1))));
+    bus.Routes(r => r.Command<CheckStock>().ToQueue("check-stock"));
     bus.UseInboxDeduplication(TimeSpan.FromHours(1));
     bus.AddConsumersFromAssembly(typeof(Program).Assembly);
     bus.ServiceName("inventory-service");
@@ -25,7 +26,7 @@ builder.Services.AddAvtoBus(bus =>
 var app = builder.Build();
 
 app.MapGet("/", () => "Inventory service — Kafka/Rabbit/InMemory, consumes OrderCreated/ReserveInventory, replies CheckStock");
-app.MapGet("/health", () => new { status = "ok", service = "inventory", transport = app.Configuration.GetConnectionString("Kafka") != null ? "kafka" : app.Configuration.GetConnectionString("Rabbit") != null ? "rabbit" : "inmemory" });
+app.MapGet("/health", () => new { status = "ok", service = "inventory", transport = !string.IsNullOrEmpty(app.Configuration.GetConnectionString("Kafka")) ? "kafka" : !string.IsNullOrEmpty(app.Configuration.GetConnectionString("Rabbit")) ? "rabbit" : "inmemory" });
 app.Run();
 
 public class OrderCreatedHandler : IConsumer<OrderCreated>

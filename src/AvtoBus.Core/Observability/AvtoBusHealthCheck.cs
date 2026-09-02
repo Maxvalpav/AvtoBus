@@ -20,13 +20,15 @@ public sealed class AvtoBusHealthCheck : IHealthCheck
 
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+        var runners = _host.Runners.ToArray();
         var data = new Dictionary<string, object>
         {
-            ["consumers"] = _host.Runners.Count,
+            ["consumers"] = runners.Length,
             ["allReceivingStopped"] = _host.AllReceivingStopped,
         };
 
-        foreach (var r in _host.Runners)
+        foreach (var r in runners)
         {
             data[$"lag:{r.Name}"] = r.Lag;
             data[$"circuit:{r.Name}"] = r.CircuitState.ToString();

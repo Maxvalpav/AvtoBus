@@ -30,6 +30,10 @@ public static class OutboxRegistration
         bus.Services.AddSingleton<AvtoBus.Observability.IOutboxPendingProvider>(sp =>
             sp.GetRequiredService<OutboxRelay>());
         bus.Services.AddHostedService<OutboxCleanup>();
+        // B12: схема outbox/inbox + таблица версий
+        bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigration>();
+        bus.Services.AddScoped<AvtoBus.Migrations.ISchemaExecutor>(sp => new AvtoBus.Outbox.EfCore.EfSchemaExecutor<TDb>(sp.GetRequiredService<TDb>()));
+        bus.Services.AddHostedService<AvtoBus.Migrations.SchemaMigrator>();
         return bus;
     }
 }

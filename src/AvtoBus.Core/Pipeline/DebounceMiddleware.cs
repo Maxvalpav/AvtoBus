@@ -8,9 +8,10 @@ namespace AvtoBus.Pipeline;
 /// Первое появление ключа откладывается; более новые заменяют его в буфере;
 /// по истечении окна тишины доставляется только последнее.
 /// </summary>
-public sealed class DebounceMiddleware(BusOptions options) : IBusMiddleware
+public sealed class DebounceMiddleware(BusOptions options, TimeProvider? timeProvider = null) : IBusMiddleware
 {
-    private readonly ConcurrentDictionary<(string Queue, string Key), Guid> _latest = new();
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+    private readonly ConcurrentDictionary<(string Queue, string Key), (Guid Id, DateTimeOffset ExpiresAt)> _latest = new();
 
     public async ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
     {
@@ -23,13 +24,14 @@ public sealed class DebounceMiddleware(BusOptions options) : IBusMiddleware
             return;
         }
 
+        // Evict expired entries to bound memory for high-cardinality keys
+        EvictExpired();
+
         var mapKey = (context.Source.Name, keySelector(context.Message));
 
-        // Повторная доставка после окна: доставляем, только если это всё ещё последнее
-        // сообщение ключа. Иначе за время окна пришло новое — текущее уже неактуально.
         if (context.Envelope.DeliveryAttempt > 1)
         {
-            if (_latest.TryGetValue(mapKey, out var latestId) && latestId == context.Envelope.MessageId)
+            if (_latest.TryGetValue(mapKey, out var entry) && entry.Id == context.Envelope.MessageId)
             {
                 _latest.TryRemove(mapKey, out _);
                 await next(context).ConfigureAwait(false);
@@ -38,13 +40,17 @@ public sealed class DebounceMiddleware(BusOptions options) : IBusMiddleware
             {
                 context.Skip("debounce: superseded");
             }
-
             return;
         }
 
-        // Первое появление ключа: возможно, следом придёт обновление. Заменяем буфер
-        // и откладываем доставку — ретрай с задержкой вернёт сообщение после окна.
-        _latest[mapKey] = context.Envelope.MessageId;
+        _latest[mapKey] = (context.Envelope.MessageId, _time.GetUtcNow() + window + TimeSpan.FromMinutes(1));
         await context.DeferAsync(window).ConfigureAwait(false);
+    }
+
+    private void EvictExpired()
+    {
+        var now = _time.GetUtcNow();
+        foreach (var (k, v) in _latest)
+            if (now >= v.ExpiresAt) _latest.TryRemove(k, out _);
     }
 }

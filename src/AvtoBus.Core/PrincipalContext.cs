@@ -9,29 +9,23 @@ namespace AvtoBus;
 /// </summary>
 public static class PrincipalContext
 {
-    private static readonly AsyncLocal<ClaimsPrincipal?> Current = new();
-
+    private static readonly AsyncLocal<Stack<ClaimsPrincipal?>?> StackHolder = new();
     /// <summary>Устанавливает principal, от имени которого отправляются сообщения.</summary>
     public static IDisposable Push(ClaimsPrincipal? principal)
     {
-        var previous = Current.Value;
-        Current.Value = principal;
-        return new PopOnDispose(previous);
+        var prev = StackHolder.Value;
+        var next = prev is null ? new Stack<ClaimsPrincipal?>() : new Stack<ClaimsPrincipal?>(prev.Reverse());
+        next.Push(principal);
+        StackHolder.Value = next;
+        return new PopOnDispose(prev);
     }
-
-    public static ClaimsPrincipal? Get() => Current.Value;
-
-    private sealed class PopOnDispose(ClaimsPrincipal? previous) : IDisposable
+    public static ClaimsPrincipal? Get() => StackHolder.Value is { Count: > 0 } st ? st.Peek() : null;
+    private sealed class PopOnDispose : IDisposable
     {
+        private readonly Stack<ClaimsPrincipal?>? _previous;
         private bool _disposed;
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            Current.Value = previous;
-        }
+        public PopOnDispose(Stack<ClaimsPrincipal?>? previous) => _previous = previous;
+        public void Dispose() { if (_disposed) return; _disposed = true; StackHolder.Value = _previous; }
     }
 }
 

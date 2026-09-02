@@ -74,15 +74,16 @@ public interface ISubjectKeyRing
 public sealed class InMemorySubjectKeyRing : ISubjectKeyRing
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _keys = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _forgotten = new();
 
     public bool TryGetKey(string subjectId, out byte[] key) => _keys.TryGetValue(subjectId, out key!);
 
     public byte[] GetOrCreateKey(string subjectId)
         => _keys.GetOrAdd(subjectId, _ => System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
-    public void Forget(string subjectId) => _keys.TryRemove(subjectId, out _);
+    public void Forget(string subjectId) { _keys.TryRemove(subjectId, out _); _forgotten[subjectId] = 1; }
 
-    public bool IsForgotten(string subjectId) => !_keys.ContainsKey(subjectId);
+    public bool IsForgotten(string subjectId) => _forgotten.ContainsKey(subjectId);
 }
 
 /// <summary>

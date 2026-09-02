@@ -52,6 +52,7 @@ public sealed class ConsumerConfigurator<T>(ConsumerSettings settings) where T :
 
     public ConsumerConfigurator<T> Prefetch(int count)
     {
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), "Prefetch must be >=1");
         Settings.PrefetchCount = count;
         return this;
     }
@@ -59,6 +60,8 @@ public sealed class ConsumerConfigurator<T>(ConsumerSettings settings) where T :
     /// <summary>Батчевая обработка: один хендлер на группу сообщений (идея 20).</summary>
     public ConsumerConfigurator<T> Batch(int size, TimeSpan? timeout = null, Func<T, string>? partitionBy = null)
     {
+        if (size < 1) throw new ArgumentOutOfRangeException(nameof(size));
+        if (timeout is { } t && t <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeout));
         Settings.BatchSize = size;
         if (timeout is { } value)
             Settings.BatchTimeout = value;
@@ -72,6 +75,7 @@ public sealed class ConsumerConfigurator<T>(ConsumerSettings settings) where T :
     /// </summary>
     public ConsumerConfigurator<T> OrderedBy(Func<T, string> keySelector, int partitions = 8)
     {
+        if (partitions < 1) throw new ArgumentOutOfRangeException(nameof(partitions));
         Settings.PartitionKeySelector = message => keySelector((T)message);
         Settings.Partitions = partitions;
         return this;
@@ -80,6 +84,7 @@ public sealed class ConsumerConfigurator<T>(ConsumerSettings settings) where T :
     /// <summary>Сливает поток обновлений одного ключа в одно сообщение (идея 30).</summary>
     public ConsumerConfigurator<T> Debounce(Func<T, string> keySelector, TimeSpan window)
     {
+        if (window <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(window));
         Settings.DebounceKeySelector = message => keySelector((T)message);
         Settings.DebounceWindow = window;
         return this;

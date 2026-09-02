@@ -63,14 +63,14 @@ public sealed class CanaryProbe(
 
         await transports.Default.ProvisionAsync([destination], ct).ConfigureAwait(false);
 
-        var started = DateTimeOffset.UtcNow;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var id = Guid.NewGuid();
         var envelope = envelopes.CreateForCanary(id);
 
         await transports.Default.SendAsync(envelope, destination, ct).ConfigureAwait(false);
 
         var ok = await TryReceiveOwnAsync(destination, id, ct).ConfigureAwait(false);
-        var elapsed = DateTimeOffset.UtcNow - started;
+        var elapsed = sw.Elapsed;
 
         if (ok)
         {
@@ -103,8 +103,7 @@ public sealed class CanaryProbe(
                         return true;
                     }
 
-                    // Not ours (legacy canary): вернуть в очередь, чтобы не терять.
-                    await transports.Default.SendAsync(message.Envelope, destination, ct).ConfigureAwait(false);
+                    // Not ours: просто ack без ре-публикации — чужую канарейку (другая реплика/сервис) не гоняем по кругу.
                     await message.AcknowledgeAsync(ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)

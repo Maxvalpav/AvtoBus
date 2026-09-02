@@ -39,18 +39,21 @@ public static class FieldEncryptor
         var nonce = RandomNumberGenerator.GetBytes(12);
         var tag = new byte[16];
         var ct = new byte[bytes.Length];
-        using var aes = new AesGcm(key, tag.Length);
+        using var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize);
         aes.Encrypt(nonce, bytes, ct, tag, null);
         var payload = new byte[ct.Length + tag.Length];
         ct.CopyTo(payload, 0);
         tag.CopyTo(payload, ct.Length);
+        // Clear plaintext bytes after use
+        CryptographicOperations.ZeroMemory(bytes);
+        CryptographicOperations.ZeroMemory(ct);
         return $"{Prefix}{Convert.ToBase64String(nonce)}:{Convert.ToBase64String(payload)}";
     }
 
     private static string DecryptString(string cipher, ReadOnlySpan<byte> key)
     {
         var parts = cipher.Split(':', 3);
-        if (parts.Length != 3) throw new SecurityViolationException($"Malformed encrypted field: {cipher}");
+        if (parts.Length != 3) throw new SecurityViolationException("Malformed encrypted field");
         byte[] nonce, payload;
         try { nonce = Convert.FromBase64String(parts[1]); } catch (FormatException ex) { throw new SecurityViolationException("Invalid nonce", ex); }
         try { payload = Convert.FromBase64String(parts[2]); } catch (FormatException ex) { throw new SecurityViolationException("Invalid payload", ex); }

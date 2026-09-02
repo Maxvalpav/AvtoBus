@@ -100,6 +100,12 @@ public sealed class BusOptions
     /// <summary>Сжатие тел сообщений (gzip).</summary>
     public AvtoBus.Compression.CompressionOptions? Compression { get; set; }
 
+    /// <summary>Allowlist типов — если задан, только они проходят десериализацию (идея 451).</summary>
+    public HashSet<string>? AllowedMessageTypes { get; set; }
+
+    /// <summary>mTLS опции, пробрасываются транспортам.</summary>
+    public object? TlsOptions { get; set; }
+
     /// <summary>Локальные in-process очереди (идея 15).</summary>
     public Dictionary<string, int> LocalQueues { get; } = [];
 
@@ -170,21 +176,28 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
         return this;
     }
 
+    public bool IsDefaultTransportSet => _defaultTransportSet;
+    public void TrySetDefaultTransport(string name)
+    {
+        if (!_defaultTransportSet) { Options.DefaultTransport = name; _defaultTransportSet = true; }
+    }
+    private bool _defaultTransportSet;
+
     /// <summary>
     /// Регистрирует транспорт. Первый зарегистрированный становится транспортом по умолчанию.
     /// </summary>
     public BusConfigurator UseTransport(ITransport transport)
     {
         Services.AddSingleton(transport);
-        Options.DefaultTransport = transport.Name;
+        TrySetDefaultTransport(transport.Name);
         return this;
     }
 
     /// <summary>Регистрирует транспорт, которому нужны зависимости из контейнера.</summary>
     public BusConfigurator UseTransport(string name, Func<IServiceProvider, ITransport> factory)
     {
-        Services.AddSingleton(factory);
-        Options.DefaultTransport = name;
+        Services.AddSingleton<ITransport>(factory);
+        TrySetDefaultTransport(name);
         return this;
     }
 
@@ -599,6 +612,8 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
     /// <summary>Включает сжатие тел &gt; threshold (gzip, идея 105).</summary>
     public BusConfigurator UseCompression(int thresholdBytes = 1024, System.IO.Compression.CompressionLevel level = System.IO.Compression.CompressionLevel.Optimal)
     {
+        if (thresholdBytes < 1) throw new ArgumentOutOfRangeException(nameof(thresholdBytes));
+        if (Options.Compression is not null) return this;
         var opts = new AvtoBus.Compression.CompressionOptions { ThresholdBytes = thresholdBytes, Level = level };
         Options.Compression = opts;
         Services.AddSingleton(opts);
@@ -607,9 +622,24 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
         return this;
     }
 
+    /// <summary>Ограничивает десериализацию только allowlist-типами (fail-closed).</summary>
+    public BusConfigurator UseAllowlist(params string[] messageTypes)
+    {
+        Options.AllowedMessageTypes ??= new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in messageTypes) Options.AllowedMessageTypes.Add(t);
+        return this;
+    }
+    public BusConfigurator UseAllowlist(IEnumerable<string> messageTypes)
+    {
+        Options.AllowedMessageTypes ??= new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in messageTypes) Options.AllowedMessageTypes.Add(t);
+        return this;
+    }
+
     /// <summary>Включает ClaimCheck: тела крупнее порога уходят в blob-store (идея 138).</summary>
     public BusConfigurator UseClaimCheck(int thresholdBytes = 256 * 1024, AvtoBus.ClaimCheck.IBlobStore? store = null)
     {
+        if (Options.ClaimCheck is not null) return this;
         Options.ClaimCheck = new AvtoBus.ClaimCheck.ClaimCheckOptions { ThresholdBytes = thresholdBytes };
         if (store is not null)
             Services.AddSingleton(store);

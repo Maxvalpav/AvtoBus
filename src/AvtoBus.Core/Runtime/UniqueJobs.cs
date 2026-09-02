@@ -90,8 +90,11 @@ public sealed class InMemoryUniqueStore(TimeProvider? time = null) : IUniqueStor
         return true;
     }
 
+    private long _cleanupCounter;
     private void Cleanup(DateTimeOffset now)
     {
+        // Throttle cleanup: every 100 acquires to avoid O(N) scan on hot path
+        if (Interlocked.Increment(ref _cleanupCounter) % 100 != 0 && _slots.Count < 10000) return;
         foreach (var kv in _slots)
             if (kv.Value <= now) _slots.TryRemove(kv.Key, out _);
     }
@@ -135,14 +138,14 @@ public static class UniqueJobExtensions
     public static SendOptions WithUniqueKey(this SendOptions opts, string key, TimeSpan? period = null)
     {
         opts.WithHeader("avtobus.unique-key", key);
-        if (period is not null) opts.WithHeader("avtobus.unique-ttl", period.Value.TotalSeconds.ToString("F0"));
+        if (period is not null) opts.WithHeader("avtobus.unique-ttl", period.Value.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
         return opts;
     }
 
     public static PublishOptions WithUniqueKey(this PublishOptions opts, string key, TimeSpan? period = null)
     {
         opts.WithHeader("avtobus.unique-key", key);
-        if (period is not null) opts.WithHeader("avtobus.unique-ttl", period.Value.TotalSeconds.ToString("F0"));
+        if (period is not null) opts.WithHeader("avtobus.unique-ttl", period.Value.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
         return opts;
     }
 }
@@ -155,8 +158,18 @@ public sealed class UniqueJobConsumerMiddleware : AvtoBus.Pipeline.IBusMiddlewar
     public UniqueJobConsumerMiddleware(IUniqueStore store) => _store = store;
     public ValueTask InvokeAsync(ConsumeContext context, AvtoBus.Pipeline.BusDelegate next)
     {
-        // Если обработка успешна — освобождаем ключ через TTL, не мгновенно (период уникальности)
-        _ = _store; // avoid CS9113, store used for future release logic
+        if (context.Envelope.Headers.TryGetValue("avtobus.unique-key", out var key) && !string.IsNullOrWhiteSpace(key))
+        {
+            if (_store.IsHeld(key))
+            {
+                context.Skip($"unique-held:{key}");
+                return ValueTask.CompletedTask;
+            }
+            var ttl = TimeSpan.FromSeconds(30);
+            if (context.Envelope.Headers.TryGetValue("avtobus.unique-ttl", out var ttlStr) && double.TryParse(ttlStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms) && double.IsFinite(ms) && ms > 0)
+                ttl = TimeSpan.FromMilliseconds(ms);
+            _store.TryAcquire(key, ttl);
+        }
         return next(context);
     }
 }

@@ -22,25 +22,56 @@ public abstract class RetrySchedule
 
     private sealed class Chained(RetrySchedule a, RetrySchedule b) : RetrySchedule
     {
-        public override TimeSpan? NextDelay(int attempt, Exception ex) => a.NextDelay(attempt, ex) ?? b.NextDelay(attempt, ex);
+        public override TimeSpan? NextDelay(int attempt, Exception ex)
+        {
+            var da = a.NextDelay(attempt, ex);
+            if (da is not null) return da;
+            // Find offset where a first returns null (transition point)
+            int offset = 0;
+            for (int i = 1; i <= attempt; i++)
+            {
+                if (a.NextDelay(i, ex) is null) { offset = i - 1; break; }
+                if (i == attempt) offset = attempt;
+            }
+            var shifted = attempt - offset;
+            if (shifted < 1) shifted = 1;
+            return b.NextDelay(shifted, ex);
+        }
     }
     private sealed class OrSchedule(RetrySchedule a, RetrySchedule b) : RetrySchedule
     {
-        public override TimeSpan? NextDelay(int attempt, Exception ex) => a.NextDelay(attempt, ex) ?? b.NextDelay(attempt, ex);
+        public override TimeSpan? NextDelay(int attempt, Exception ex)
+        {
+            var da = a.NextDelay(attempt, ex);
+            var db = b.NextDelay(attempt, ex);
+            if (da is null) return db;
+            if (db is null) return da;
+            return da.Value < db.Value ? da : db;
+        }
     }
     private sealed class JitterSchedule(RetrySchedule inner, double factor) : RetrySchedule
     {
         public override TimeSpan? NextDelay(int attempt, Exception ex)
         {
+            if (factor < 0 || factor >= 1) throw new ArgumentOutOfRangeException(nameof(factor), "Jitter factor must be in [0,1).");
             var d = inner.NextDelay(attempt, ex);
             if (d is null) return null;
-            var jitter = Random.Shared.NextDouble() * factor * 2 - factor; // -factor..+factor
-            return TimeSpan.FromMilliseconds(d.Value.TotalMilliseconds * (1 + jitter));
+            var jitter = Random.Shared.NextDouble() * factor * 2 - factor;
+            var ms = d.Value.TotalMilliseconds * (1 + jitter);
+            if (ms < 0) ms = 0;
+            return TimeSpan.FromMilliseconds(ms);
         }
     }
     private sealed class ExponentialSchedule(TimeSpan initial, double factor) : RetrySchedule
     {
-        public override TimeSpan? NextDelay(int attempt, Exception ex) => TimeSpan.FromMilliseconds(initial.TotalMilliseconds * Math.Pow(factor, attempt - 1));
+        public override TimeSpan? NextDelay(int attempt, Exception ex)
+        {
+            var pow = Math.Pow(factor, attempt - 1);
+            if (double.IsInfinity(pow) || double.IsNaN(pow)) return null;
+            var ms = initial.TotalMilliseconds * pow;
+            if (ms > int.MaxValue) return null;
+            return TimeSpan.FromMilliseconds(ms);
+        }
     }
     private sealed class SpacedSchedule(TimeSpan delay) : RetrySchedule
     {
@@ -54,8 +85,17 @@ public abstract class RetrySchedule
     {
         public override TimeSpan? NextDelay(int attempt, Exception ex)
         {
-            long a = 0, b = 1; for (int i = 0; i < attempt; i++) { var t = a + b; a = b; b = t; }
-            return TimeSpan.FromMilliseconds(initial.TotalMilliseconds * a);
+            checked
+            {
+                try
+                {
+                    long a = 0, b = 1; for (int i = 0; i < attempt; i++) { var t = checked(a + b); a = b; b = t; }
+                    var ms = initial.TotalMilliseconds * a;
+                    if (double.IsInfinity(ms) || ms > int.MaxValue) return null;
+                    return TimeSpan.FromMilliseconds(ms);
+                }
+                catch (OverflowException) { return null; }
+            }
         }
     }
     private sealed class NeverSchedule : RetrySchedule

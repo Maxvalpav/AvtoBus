@@ -44,7 +44,15 @@ public sealed class ClaimCheckService(IBlobStore blobs, BusOptions options)
         if (envelope.Header(ClaimCheckOptions.UrlHeader) is not { } url)
             return envelope;
 
-        var body = await blobs.GetAsync(url, ct).ConfigureAwait(false);
-        return envelope with { Body = body };
+        try
+        {
+            var body = await blobs.GetAsync(url, ct).ConfigureAwait(false);
+            if (body.Length == 0) throw new InvalidDataException($"ClaimCheck blob at {url} is empty.");
+            return envelope with { Body = body };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new InvalidDataException($"ClaimCheck blob not found: {url}", ex);
+        }
     }
 }

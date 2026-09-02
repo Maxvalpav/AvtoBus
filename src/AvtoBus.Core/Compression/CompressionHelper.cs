@@ -17,12 +17,20 @@ public static class CompressionHelper
         return dst.ToArray();
     }
 
-    public static ReadOnlyMemory<byte> Decompress(ReadOnlyMemory<byte> body)
+    public static ReadOnlyMemory<byte> Decompress(ReadOnlyMemory<byte> body, int maxDecompressedBytes = 10 * 1024 * 1024)
     {
         using var src = new MemoryStream(body.ToArray());
         using var gz = new GZipStream(src, CompressionMode.Decompress);
         using var dst = new MemoryStream();
-        gz.CopyTo(dst);
+        var buffer = new byte[8192];
+        int total = 0, read;
+        while ((read = gz.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            total += read;
+            if (total > maxDecompressedBytes)
+                throw new InvalidDataException($"Decompressed payload exceeds {maxDecompressedBytes} bytes — possible zip-bomb.");
+            dst.Write(buffer, 0, read);
+        }
         return dst.ToArray();
     }
 

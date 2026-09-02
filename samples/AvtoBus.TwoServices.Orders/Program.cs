@@ -21,13 +21,14 @@ builder.Services.AddAvtoBus(bus =>
         bus.UseInMemory();
 
     bus.Recoverability(r => r.ImmediateRetries(2).DelayedRetries(3, Backoff.Exponential(TimeSpan.FromSeconds(2))));
+    bus.Routes(r => r.Command<CheckStock>().ToQueue("check-stock"));
     bus.AddConsumersFromAssembly(typeof(Program).Assembly);
     bus.ServiceName("orders-service");
 });
 var app = builder.Build();
 
 app.MapGet("/", () => "Orders service — POST /orders, POST /pay/{id}, GET /stock/{sku} (Kafka/Rabbit/InMemory)");
-app.MapGet("/health", () => new { status = "ok", service = "orders", transport = app.Configuration.GetConnectionString("Kafka") != null ? "kafka" : app.Configuration.GetConnectionString("Rabbit") != null ? "rabbit" : "inmemory" });
+app.MapGet("/health", () => new { status = "ok", service = "orders", transport = !string.IsNullOrEmpty(app.Configuration.GetConnectionString("Kafka")) ? "kafka" : !string.IsNullOrEmpty(app.Configuration.GetConnectionString("Rabbit")) ? "rabbit" : "inmemory" });
 
 app.MapPost("/orders", async (CreateOrderRequest req, IBus bus) =>
 {

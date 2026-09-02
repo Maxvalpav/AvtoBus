@@ -1,6 +1,6 @@
 namespace AvtoBus.Compression;
 
-/// <summary>Сжатие тел сообщений (идея 105 доп): GZip для &gt; threshold, заголовок avtobus-compression.</summary>
+/// <summary>Сжатие тел сообщений (идея 105): GZip для &gt; threshold, заголовок content-encoding=gzip. Decompress guard настраивается.</summary>
 public sealed class CompressionOptions
 {
     public const string Header = "avtobus-compression";
@@ -12,4 +12,7 @@ public sealed class CompressionOptions
 
     /// <summary>Уровень: Optimal vs Fastest.</summary>
     public System.IO.Compression.CompressionLevel Level { get; set; } = System.IO.Compression.CompressionLevel.Optimal;
+
+    /// <summary>Защита от zip-bomb: максимум после распаковки. 0 = 10MB default.</summary>
+    public int MaxDecompressedBytes { get; set; } = 10 * 1024 * 1024;
 }

@@ -20,7 +20,7 @@ public static class AsbBusExtensions
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<AsbTransport>());
 
-        bus.Options.DefaultTransport = "asb";
+        bus.TrySetDefaultTransport("asb");
         return bus;
     }
 }

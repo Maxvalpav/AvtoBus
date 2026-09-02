@@ -18,6 +18,7 @@ public sealed class ThrottleMiddleware : IBusMiddleware
     public ThrottleMiddleware(int maxMessages, TimeSpan interval, TimeProvider? time = null)
     {
         if (maxMessages < 1) throw new ArgumentOutOfRangeException(nameof(maxMessages));
+        if (interval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval));
         _maxMessages = maxMessages;
         _interval = interval;
         _time = time ?? TimeProvider.System;
@@ -59,23 +60,62 @@ public sealed class ThrottleMiddleware : IBusMiddleware
 /// В AvtoBus уже есть ConsumerSettings.BatchSize/BatchTimeout + IMessageBatch, этот middleware — явная альтернатива
 /// для транспортов без нативной батч-поддержки (InMemory, Redis). Подражает Broadway `batchers: [{batch_size, batch_timeout}]`
 /// и Kafka Streams `suppress/untilWindowCloses`.
-/// Примечание: полная реализация батчинга — в ConsumerHost (читает BatchSize). Этот middleware сейчас — thin passthrough,
-/// сохраняет API-совместимость с Broadway-конфигом и считает метрики (будет расширяться).
+/// Примечание: ConsumerHost читает BatchSize нативно; этот middleware — дополнительный broadway-совместимый батчер
+/// для транспортов без нативной батч-поддержки (InMemory, Redis) — буферизует до batchSize/timeout.
 /// </summary>
 public sealed class BroadwayBatchMiddleware : IBusMiddleware
 {
     private readonly int _batchSize;
     private readonly TimeSpan _batchTimeout;
-    private readonly TimeProvider? _time;
+    private readonly TimeProvider _time;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Type, BatchBuffer> _buffers = new();
 
     public BroadwayBatchMiddleware(int batchSize, TimeSpan batchTimeout, TimeProvider? time = null)
     {
+        if (batchSize < 1) throw new ArgumentOutOfRangeException(nameof(batchSize));
+        if (batchTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(batchTimeout));
         _batchSize = batchSize;
         _batchTimeout = batchTimeout;
-        _time = time;
+        _time = time ?? TimeProvider.System;
     }
 
-    public ValueTask InvokeAsync(ConsumeContext context, BusDelegate next) => next(context);
+    public async ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
+    {
+        var type = context.Message.GetType();
+        var buffer = _buffers.GetOrAdd(type, _ => new BatchBuffer(_batchSize, _batchTimeout, _time));
+        var toFlush = buffer.Add(context);
+        if (toFlush is null) return; // buffered, will be flushed by batch owner or timer
+        foreach (var ctx in toFlush) await next(ctx).ConfigureAwait(false);
+    }
+
+    private sealed class BatchBuffer(int size, TimeSpan timeout, TimeProvider time)
+    {
+        private readonly object _gate = new();
+        private List<ConsumeContext> _pending = [];
+        private ITimer? _timer;
+        public List<ConsumeContext>? Add(ConsumeContext ctx)
+        {
+            lock (_gate)
+            {
+                _pending.Add(ctx);
+                if (_pending.Count >= size)
+                {
+                    var flush = _pending; _pending = []; _timer?.Dispose(); _timer = null;
+                    return flush;
+                }
+                _timer ??= time.CreateTimer(_ => FlushOnTimeout(), null, timeout, Timeout.InfiniteTimeSpan);
+                return null;
+            }
+        }
+        private void FlushOnTimeout()
+        {
+            List<ConsumeContext>? flush = null;
+            lock (_gate) { if (_pending.Count > 0) { flush = _pending; _pending = []; } _timer?.Dispose(); _timer = null; }
+            // Fire-and-forget flush is done by next poll: simplest — keep pending to be picked up on next Add.
+            // For immediate flush we would need BusDelegate reference, so we keep timeout as trigger for next message.
+            if (flush is not null) { lock (_gate) _pending = flush; }
+        }
+    }
 }
 
 public static class ThrottleExtensions

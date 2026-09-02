@@ -70,6 +70,17 @@ public sealed class MessageProcessor(
             }
         }
 
+        // 1. Allowlist: если задан — неизвестный тип сразу уходит в poison без десериализации (идея 457).
+        if (options.AllowedMessageTypes is { Count: > 0 } allow && !allow.Contains(envelope.MessageType))
+        {
+            BusTelemetry.RecordDecision(Activity.Current, "poison", $"allowlist block '{envelope.MessageType}'");
+            logger.LogWarning(
+                "Тип сообщения {MessageType} ({MessageId}) не в allowlist — в poison-очередь",
+                envelope.MessageType,
+                envelope.MessageId);
+            return ProcessingDecision.Poison($"тип '{envelope.MessageType}' не в allowlist");
+        }
+
         // 1. Разрешаем тип. Неизвестный контракт — это poison: ретраи не помогут.
         if (!registry.TryResolve(envelope.MessageType, out var messageType))
         {

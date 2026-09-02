@@ -20,8 +20,7 @@ public sealed class TailSampler(TailSamplingOptions opts)
 {
     public bool ShouldSample(ConsumeContext ctx)
     {
-        if (ctx.Outcome is ConsumeOutcome.DeadLettered or ConsumeOutcome.Failed && opts.AlwaysSampleDlq) return true;
-        // Проверка ошибки по activity статусу
+        if (ctx.Outcome is ConsumeOutcome.DeadLettered && opts.AlwaysSampleDlq) return true;
         var act = Activity.Current;
         if (act is not null && act.Status == ActivityStatusCode.Error && opts.AlwaysSampleErrors) return true;
         return Random.Shared.NextDouble() < opts.SuccessRatio;
@@ -30,12 +29,8 @@ public sealed class TailSampler(TailSamplingOptions opts)
     {
         var should = ShouldSample(ctx);
         Activity.Current?.SetTag("avtobus.sampled", should ? "true" : "false");
-        // DLQ обогащаем traceId для перехода в Tempo
         if (ctx.Outcome is ConsumeOutcome.DeadLettered && Activity.Current?.TraceId.ToString() is { } traceId)
-        {
-            ctx.Envelope.Headers.TryGetValue("avtobus.traceId", out _); // ensure mutable via Items
             ctx.Items["avtobus.dlq.traceId"] = traceId;
-        }
     }
 }
 
@@ -57,9 +52,12 @@ public sealed class TailSamplingMiddleware(TailSampler sampler) : AvtoBus.Pipeli
     public async ValueTask InvokeAsync(ConsumeContext ctx, AvtoBus.Pipeline.BusDelegate next)
     {
         await next(ctx).ConfigureAwait(false);
-        sampler.Apply(ctx);
-        // OTel: если не sampled — активность можно дропнуть, но в SDK это делает Sampler. Здесь только тег.
-        if (!sampler.ShouldSample(ctx))
+        // Deterministic: одно решение на сообщение, не два Random
+        var should = sampler.ShouldSample(ctx);
+        Activity.Current?.SetTag("avtobus.sampled", should ? "true" : "false");
+        if (ctx.Outcome is ConsumeOutcome.DeadLettered && Activity.Current?.TraceId.ToString() is { } traceId)
+            ctx.Items["avtobus.dlq.traceId"] = traceId;
+        if (!should)
             Activity.Current?.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
     }
 }

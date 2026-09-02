@@ -36,12 +36,13 @@ public sealed class OutgoingMessages : IEnumerable<OutgoingMessage>
         return this;
     }
 
-    public OutgoingMessages Schedule<T>(T message, TimeSpan delay) where T : class
+    public OutgoingMessages Schedule<T>(T message, TimeSpan delay, TimeProvider? timeProvider = null) where T : class
     {
+        var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
         _messages.Add(new OutgoingMessage(
             message,
             OutgoingKind.Send,
-            new SendOptions { DeliverAt = DateTimeOffset.UtcNow + delay }));
+            new SendOptions { DeliverAt = now + delay }));
         return this;
     }
 

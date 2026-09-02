@@ -19,7 +19,7 @@ public static class KafkaBusExtensions
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<KafkaTransport>());
 
-        bus.Options.DefaultTransport = "kafka";
+        bus.TrySetDefaultTransport("kafka");
         return bus;
     }
 }

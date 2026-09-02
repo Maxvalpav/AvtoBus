@@ -31,7 +31,17 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
     public Envelope ProtectOutbound(Envelope envelope, string? serviceIdentity)
     {
         _outbound.WaitIfNeeded();
+        return ProtectCore(envelope, serviceIdentity);
+    }
 
+    public async ValueTask<Envelope> ProtectOutboundAsync(Envelope envelope, string? serviceIdentity, CancellationToken ct = default)
+    {
+        await _outbound.WaitIfNeededAsync(ct).ConfigureAwait(false);
+        return ProtectCore(envelope, serviceIdentity);
+    }
+
+    private Envelope ProtectCore(Envelope envelope, string? serviceIdentity)
+    {
         var key = _keys.Actual;
         Envelope prepared = envelope;
 
@@ -118,52 +128,33 @@ internal sealed class RateLimiter(int permitsPerSecond)
 
     public void WaitIfNeeded()
     {
-        if (permitsPerSecond <= 0)
-            return;
-
-        long waitMs = 0;
-        lock (_sync)
+        var ms = Reserve();
+        if (ms > 0)
         {
-            var nowTicks = Environment.TickCount64;
-            if (nowTicks - _windowStartTicks >= 1000)
-            {
-                _windowStartTicks = nowTicks;
-                _counter = 0;
-            }
-
-            if (_counter >= permitsPerSecond)
-                waitMs = 1000 - (nowTicks - _windowStartTicks);
-
-            _counter++;
+            // jitter 0-30ms распыляет thundering herd (100 потоков не просыпаются в 1ms)
+            var jitter = Random.Shared.Next(0, 30);
+            Thread.Sleep((int)ms + jitter);
         }
-
-        if (waitMs > 0)
-            Thread.Sleep((int)waitMs);
     }
 
     public ValueTask WaitIfNeededAsync(CancellationToken ct = default)
     {
-        if (permitsPerSecond <= 0)
-            return ValueTask.CompletedTask;
+        var ms = Reserve();
+        if (ms <= 0) return ValueTask.CompletedTask;
+        var jitter = Random.Shared.Next(0, 30);
+        return new ValueTask(Task.Delay((int)ms + jitter, ct));
+    }
 
-        long waitMs = 0;
+    private long Reserve()
+    {
+        if (permitsPerSecond <= 0) return 0;
         lock (_sync)
         {
-            var nowTicks = Environment.TickCount64;
-            if (nowTicks - _windowStartTicks >= 1000)
-            {
-                _windowStartTicks = nowTicks;
-                _counter = 0;
-            }
-
-            if (_counter >= permitsPerSecond)
-                waitMs = 1000 - (nowTicks - _windowStartTicks);
-
+            var now = Environment.TickCount64;
+            if (now - _windowStartTicks >= 1000) { _windowStartTicks = now; _counter = 0; }
+            if (_counter >= permitsPerSecond) return 1000 - (now - _windowStartTicks);
             _counter++;
+            return 0;
         }
-
-        return waitMs > 0
-            ? new ValueTask(Task.Delay((int)waitMs, ct))
-            : ValueTask.CompletedTask;
     }
 }

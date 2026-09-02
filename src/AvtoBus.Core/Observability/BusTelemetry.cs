@@ -11,10 +11,11 @@ public static class BusTelemetry
 {
     public const string ActivitySourceName = "AvtoBus";
     public const string MeterName = "AvtoBus";
+    private static string Version => typeof(BusTelemetry).Assembly.GetName().Version?.ToString() ?? "0.1.0";
 
-    public static readonly ActivitySource ActivitySource = new(ActivitySourceName, "0.1.0");
+    public static readonly ActivitySource ActivitySource = new(ActivitySourceName, typeof(BusTelemetry).Assembly.GetName().Version?.ToString() ?? "0.1.0");
 
-    private static readonly Meter Meter = new(MeterName, "0.1.0");
+    private static readonly Meter Meter = new(MeterName, typeof(BusTelemetry).Assembly.GetName().Version?.ToString() ?? "0.1.0");
 
     /// <summary>Длительность обработки сообщения консьюмером.</summary>
     public static readonly Histogram<double> ConsumeDuration = Meter.CreateHistogram<double>(

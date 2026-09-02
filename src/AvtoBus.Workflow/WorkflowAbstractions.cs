@@ -90,11 +90,16 @@ public sealed class WorkflowInstanceRunner
         if (uow is not null) await uow.CommitAsync(ct);
     }
 
-    public IWorkflowContext CreateContext(string workflowId) => new DefaultWorkflowContext(workflowId, _store, _scheduled, _clock);
-
-    private sealed class DefaultWorkflowContext(string workflowId, IWorkflowStore store, IScheduledStore? scheduled, TimeProvider clock) : IWorkflowContext
+    public IWorkflowContext CreateContext(string workflowId)
     {
-        private long _seq;
+        var hist = _store.ReadHistoryAsync(workflowId, 0, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        var max = hist.Count > 0 ? hist.Max(h => h.Sequence) : -1;
+        return new DefaultWorkflowContext(workflowId, _store, _scheduled, _clock, max);
+    }
+
+    private sealed class DefaultWorkflowContext(string workflowId, IWorkflowStore store, IScheduledStore? scheduled, TimeProvider clock, long initialSeq) : IWorkflowContext
+    {
+        private long _seq = initialSeq;
         public DateTimeOffset Now => clock.GetUtcNow();
         public Guid NewGuid() => Guid.NewGuid();
         public void ContinueAsNew(object input)
@@ -114,21 +119,32 @@ public sealed class WorkflowInstanceRunner
         public async Task<T> WaitForEventAsync<T>(string eventName, TimeSpan? timeout = null, CancellationToken ct = default)
         {
             var seq = Interlocked.Increment(ref _seq);
-            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = seq, EventType = $"WaitForEvent:{eventName}", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(eventName), CreatedAt = clock.GetUtcNow() }], ct);
-            // Poll history for signal — Inngest `step.waitForEvent` + Temporal `workflow.GetSignalChannel`
+            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = seq, EventType = $"WaitForEvent:{eventName}", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(eventName), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
             var deadline = timeout.HasValue ? clock.GetUtcNow() + timeout.Value : DateTimeOffset.MaxValue;
+            var pollDelay = TimeSpan.FromMilliseconds(50);
             while (clock.GetUtcNow() < deadline)
             {
                 ct.ThrowIfCancellationRequested();
-                var history = await store.ReadHistoryAsync(workflowId, 0, ct);
+                var history = await store.ReadHistoryAsync(workflowId, seq, ct).ConfigureAwait(false);
                 var sig = history.FirstOrDefault(h => h.EventType == $"Signal:{eventName}");
                 if (sig is not null)
                 {
-                    await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = $"EventReceived:{eventName}", Payload = sig.Payload, CreatedAt = clock.GetUtcNow() }], ct);
+                    await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = $"EventReceived:{eventName}", Payload = sig.Payload, CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
                     return System.Text.Json.JsonSerializer.Deserialize<T>(sig.Payload)!;
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
-                if (scheduled is null && timeout is null) break; // без durable store — не ждём вечно в тесте
+                if (seq == 0)
+                {
+                    var full = await store.ReadHistoryAsync(workflowId, 0, ct).ConfigureAwait(false);
+                    sig = full.FirstOrDefault(h => h.EventType == $"Signal:{eventName}");
+                    if (sig is not null)
+                    {
+                        await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = $"EventReceived:{eventName}", Payload = sig.Payload, CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
+                        return System.Text.Json.JsonSerializer.Deserialize<T>(sig.Payload)!;
+                    }
+                }
+                await Task.Delay(pollDelay, clock, ct).ConfigureAwait(false);
+                pollDelay = TimeSpan.FromMilliseconds(Math.Min(pollDelay.TotalMilliseconds * 1.5, 500));
+                if (scheduled is null && timeout is null) break;
             }
             throw new TimeoutException($"WaitForEvent '{eventName}' timed out after {timeout}");
         }
@@ -139,18 +155,24 @@ public sealed class WorkflowInstanceRunner
         public async Task CreateTimer(TimeSpan delay, CancellationToken ct = default)
         {
             var seq = Interlocked.Increment(ref _seq);
-            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = seq, EventType = "TimerCreated", Payload = BitConverter.GetBytes(delay.Ticks), CreatedAt = clock.GetUtcNow() }], ct);
+            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = seq, EventType = "TimerCreated", Payload = BitConverter.GetBytes(delay.Ticks), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
             if (scheduled is not null)
             {
-                // Durable timer via scheduled store;SchedulerService will fire it as message
                 var env = new AvtoEnvelope { MessageId = Guid.NewGuid(), MessageType = "WorkflowTimerFired", SchemaName = "workflow.timer-fired", SchemaVersion = 1, CreatedAt = clock.GetUtcNow(), Body = BitConverter.GetBytes(delay.Ticks), Headers = new() };
-                await scheduled.AddAsync([new ScheduledRecord { Id = Guid.NewGuid(), Envelope = env, Destination = $"workflow:{workflowId}", Transport = "inmemory", ScheduledAt = clock.GetUtcNow() + delay }], ct);
+                await scheduled.AddAsync([new ScheduledRecord { Id = Guid.NewGuid(), Envelope = env, Destination = $"workflow:{workflowId}", Transport = "inmemory", ScheduledAt = clock.GetUtcNow() + delay }], ct).ConfigureAwait(false);
             }
             else
             {
-                await Task.Delay(delay, ct);
+                if (delay > TimeSpan.FromSeconds(2))
+                {
+                    await Task.Yield();
+                }
+                else
+                {
+                    await Task.Delay(delay, clock, ct).ConfigureAwait(false);
+                }
             }
-            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "TimerFired", Payload = BitConverter.GetBytes(delay.Ticks), CreatedAt = clock.GetUtcNow() }], ct);
+            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "TimerFired", Payload = BitConverter.GetBytes(delay.Ticks), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
         }
         public async Task<T> ExecuteActivityAsync<T>(Func<Task<T>> activity, ActivityOptions? options = null)
         {

@@ -52,15 +52,15 @@ public static class ServiceCollectionExtensions
     {
         services.TryAddSingleton(TimeProvider.System);
 
-        // options резолвится один раз как singleton: если пользователь подключил безопасность
-        // или мультитенантность через DI (AddAvtoBusSecurity/AddAvtoBusMultitenancy), но не через
-        // configurator (UseEnvelopeSecurity/UseMultitenancy) — подхватываем их здесь, при первом
-        // разрешении EnvelopeFactory/MessageProcessor.
+        var busOptionsLock = new object();
         services.AddSingleton(sp =>
         {
-            options.EnvelopeSecurity ??= sp.GetService<IEnvelopeSecurity>();
-            options.RegionPolicy ??= sp.GetService<IRegionPolicy>();
-            options.TenantIsolationPolicy ??= sp.GetService<ITenantIsolationPolicy>();
+            lock (busOptionsLock)
+            {
+                options.EnvelopeSecurity ??= sp.GetService<IEnvelopeSecurity>();
+                options.RegionPolicy ??= sp.GetService<IRegionPolicy>();
+                options.TenantIsolationPolicy ??= sp.GetService<ITenantIsolationPolicy>();
+            }
             return options;
         });
 
@@ -109,7 +109,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<EnvelopeFactory>(),
             sp.GetRequiredService<ReplyRouter>(),
             sp.GetRequiredService<MessageRegistry>(),
-            sp.GetService<AvtoBus.Runtime.IUniqueStore>()));
+            sp.GetService<AvtoBus.Runtime.IUniqueStore>(),
+            sp.GetService<AvtoBus.ClaimCheck.ClaimCheckService>()));
         services.AddSingleton<IBus>(sp => sp.GetRequiredService<AvtoBusClient>());
 
         // Scoped-сессия для транзакционной отправки (ADR-0002): сообщения уходят в outbox,
@@ -129,29 +130,24 @@ public static class ServiceCollectionExtensions
 
             var dispatchers = sp.GetRequiredService<DispatcherRegistry>();
 
-            // Debounce обязан быть самым внешним шагом: он глотает лишние доставки ДО
-            // любых наблюдателей и пользовательской логики (идея 30).
-            if (options.Consumers.Values.Any(c => c.DebounceWindow is not null))
-                builder.UseFirst(new DebounceMiddleware(options));
-
-            // Аномалия-детектор должен видеть каждую обработку до остального пайплайна (идея 314).
-            if (options.TrafficAnomalyThreshold > 0)
-                builder.UseFirst(new TrafficAnomalyMiddleware(
-                    sp.GetRequiredService<TrafficAnomalyDetector>()));
-
-            // Чёрный список дропает заблокированное ещё раньше аномалий и наблюдателей (идея 349).
-            if (options.BlacklistEnabled)
-                builder.UseFirst(sp.GetRequiredService<BlacklistMiddleware>());
-
-            // [HandlerTimeout] должен обернуть хендлеры, но быть внутри скоупа обработки (идея 170).
+            // Правильный порядок (outer → inner): Blacklist → Traffic → Debounce → Authorization → Timeout → terminal
+            // UseFirst инвертирует, поэтому добавляем в обратном порядке: Timeout, Authorization, Debounce, Traffic, Blacklist
             builder.UseFirst(new TimeoutMiddleware(sp.GetRequiredService<DispatcherRegistry>()));
 
-            // Авторизация [BusAuthorize] — снаружи таймаута: неавторизованное сообщение
-            // не должно даже начинать обработку (идея 453/454).
             builder.UseFirst(new AuthorizationMiddleware(
                 sp.GetRequiredService<DispatcherRegistry>(),
                 sp.GetRequiredService<IPrincipalExtractor>(),
                 sp.GetRequiredService<IAuthorizer>()));
+
+            if (options.Consumers.Values.Any(c => c.DebounceWindow is not null))
+                builder.UseFirst(new DebounceMiddleware(options));
+
+            if (options.TrafficAnomalyThreshold > 0)
+                builder.UseFirst(new TrafficAnomalyMiddleware(
+                    sp.GetRequiredService<TrafficAnomalyDetector>()));
+
+            if (options.BlacklistEnabled)
+                builder.UseFirst(sp.GetRequiredService<BlacklistMiddleware>());
 
             return builder.Build(async context =>
             {
@@ -174,11 +170,12 @@ public static class ServiceCollectionExtensions
                 options.TrafficAnomalyWindow,
                 options.TrafficAnomalyHistory));
 
-        // Метрика глубины очередей: ObservableGauge опрашивает всех транспортов,
-        // способных её сообщить (идеи 94, 302). Нет провайдеров — ноль событий сбора.
+        // Единый Meter — версия берётся из сборки (синхрон с BusTelemetry), избегаем дублей
+        services.AddSingleton(_ => new System.Diagnostics.Metrics.Meter(BusTelemetry.MeterName, typeof(BusTelemetry).Assembly.GetName().Version?.ToString() ?? "0.1.0"));
+
         services.AddSingleton(sp =>
         {
-            var meter = new System.Diagnostics.Metrics.Meter(BusTelemetry.MeterName, "0.1.0");
+            var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
             return meter.CreateObservableGauge<int>(
                 "avtobus.queue.depth",
                 () => CollectQueueDepths(sp),
@@ -186,11 +183,9 @@ public static class ServiceCollectionExtensions
                 description: "Текущая глубина очереди");
         });
 
-        // Глубина DLQ-очередей — отдельным индикатором, чтобы алертить по трафику в DLQ,
-        // а не по обычному застою (идея 302).
         services.AddSingleton(sp =>
         {
-            var meter = new System.Diagnostics.Metrics.Meter(BusTelemetry.MeterName, "0.1.0");
+            var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
             return meter.CreateObservableGauge<int>(
                 "avtobus.dlq.size",
                 () => CollectDlqSizes(sp),
@@ -198,11 +193,9 @@ public static class ServiceCollectionExtensions
                 description: "Количество сообщений, попавших в DLQ");
         });
 
-        // Сколько сообщений застряло в transactional outbox. Нет провайдера (outbox не включён) —
-        // гейдж молчит.
         services.AddSingleton(sp =>
         {
-            var meter = new System.Diagnostics.Metrics.Meter(BusTelemetry.MeterName, "0.1.0");
+            var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
             return meter.CreateObservableGauge<long>(
                 "avtobus.outbox.pending",
                 () => CollectOutboxPending(sp),
@@ -210,10 +203,9 @@ public static class ServiceCollectionExtensions
                 description: "Сообщения в outbox, ожидающие отправки");
         });
 
-        // Consumer lag: насколько консьюмеры отстают от продюсеров (идея 302).
         services.AddSingleton(sp =>
         {
-            var meter = new System.Diagnostics.Metrics.Meter(BusTelemetry.MeterName, "0.1.0");
+            var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
             return meter.CreateObservableGauge<long>(
                 "avtobus.consumer.lag",
                 () => CollectConsumerLags(sp),

@@ -20,17 +20,19 @@ namespace AvtoBus.Diagnostics;
 /// </remarks>
 public static class PiiMasker
 {
+    private const int MaxCachedTypes = 2000;
     private static readonly ConcurrentDictionary<Type, FrozenDictionary<string, string>> MaskedProperties =
         new();
 
-    /// <summary>Маскирует строку: короткий хэш исходника вместо полного значения.</summary>
+    /// <summary>Маскирует строку: детерминированная маска по SHA256 (урезанная, для корреляции в логах).</summary>
     public static string Mask(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value ?? "";
 
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return $"###{Convert.ToHexString(hash, 0, 4).ToLowerInvariant()}";
+        // 8 байт = 16 hex = 64 бит энтропии, достаточно для корреляции без brute-force на короткие PII
+        return $"###{Convert.ToHexString(hash, 0, 8).ToLowerInvariant()}";
     }
 
     /// <summary>
@@ -46,24 +48,35 @@ public static class PiiMasker
             return "null";
 
         var type = message.GetType();
+        if (MaskedProperties.Count >= MaxCachedTypes && !MaskedProperties.ContainsKey(type))
+            return "***pii-redacted***";
         var fields = MaskedProperties.GetOrAdd(type, BuildFieldMap);
         if (fields.Count == 0)
             return JsonSerializer.Serialize(message, type);
 
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(message, type));
-        var output = new Dictionary<string, object?>(StringComparer.Ordinal);
+        var masked = MaskElement(document.RootElement, fields);
+        return JsonSerializer.Serialize(masked, new JsonSerializerOptions { WriteIndented = false });
+    }
 
-        foreach (var element in document.RootElement.EnumerateObject())
+    private static object? MaskElement(JsonElement element, FrozenDictionary<string, string> fields)
+    {
+        return element.ValueKind switch
         {
-            if (fields.TryGetValue(element.Name, out _) && element.Value.ValueKind is not JsonValueKind.Null)
-                output[element.Name] = Mask(element.Value.GetString() ?? element.Value.GetRawText());
-            else
-                output[element.Name] = Read(element.Value);
-        }
-
-        return JsonSerializer.Serialize(
-            output,
-            new JsonSerializerOptions { WriteIndented = false });
+            JsonValueKind.Object => element.EnumerateObject().ToDictionary(
+                p => p.Name,
+                p => fields.ContainsKey(p.Name) && p.Value.ValueKind is not JsonValueKind.Null
+                    ? Mask(p.Value.GetString() ?? p.Value.GetRawText())
+                    : MaskElement(p.Value, fields),
+                StringComparer.Ordinal),
+            JsonValueKind.Array => element.EnumerateArray().Select(e => MaskElement(e, fields)).ToArray(),
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.GetDecimal(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => element.GetRawText()
+        };
     }
 
     private static object? Read(JsonElement element) => element.ValueKind switch
@@ -84,16 +97,30 @@ public static class PiiMasker
     [RequiresUnreferencedCode("Сканирование свойств на PersonalDataAttribute — reflection (legacy).")]
     private static FrozenDictionary<string, string> BuildFieldMap(Type type)
     {
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var contractMarked = type.GetCustomAttribute<PersonalDataAttribute>() is not null;
 
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             var attribute = property.GetCustomAttribute<PersonalDataAttribute>();
             if (contractMarked || attribute is not null)
-                map[property.Name] = attribute?.Category ?? "pii";
+            {
+                var name = property.Name;
+                if (string.IsNullOrEmpty(name)) continue;
+                map[name] = attribute?.Category ?? "pii";
+                // Также camelCase вариант, т.к. JsonSerializer может использовать PropertyNamingPolicy.CamelCase
+                if (name.Length > 1)
+                {
+                    var camel = char.ToLowerInvariant(name[0]) + name[1..];
+                    map.TryAdd(camel, attribute?.Category ?? "pii");
+                }
+                else
+                {
+                    map.TryAdd(name.ToLowerInvariant(), attribute?.Category ?? "pii");
+                }
+            }
         }
 
-        return map.ToFrozenDictionary(StringComparer.Ordinal);
+        return map.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     }
 }

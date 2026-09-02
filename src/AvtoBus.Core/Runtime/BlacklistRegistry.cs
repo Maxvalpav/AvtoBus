@@ -67,9 +67,11 @@ public sealed class BlacklistMiddleware(BlacklistRegistry registry, ILogger<Blac
 
     public ValueTask InvokeAsync(ConsumeContext context, BusDelegate next)
     {
-        var messageType = context.Message.GetType().Name;
+        var messageType = context.Envelope.MessageType;
+        var clrName = context.Message.GetType().Name;
+        var clrFull = context.Message.GetType().FullName ?? clrName;
 
-        if (registry.IsBlocked(messageType))
+        if (registry.IsBlocked(messageType) || registry.IsBlocked(clrName) || registry.IsBlocked(clrFull))
         {
             // Против правил безопаснее, чем обрабатывать заведомо битое сообщение (идея 199).
             context.Skip($"blacklist:{messageType}");

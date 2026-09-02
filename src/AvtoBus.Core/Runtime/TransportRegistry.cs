@@ -6,8 +6,18 @@ namespace AvtoBus.Runtime;
 /// </summary>
 public sealed class TransportRegistry(IEnumerable<ITransport> transports, string defaultTransport)
 {
-    private readonly Dictionary<string, ITransport> _transports =
-        transports.ToDictionary(t => t.Name, StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ITransport> _transports = Build(transports);
+
+    private static Dictionary<string, ITransport> Build(IEnumerable<ITransport> transports)
+    {
+        var dict = new Dictionary<string, ITransport>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in transports)
+        {
+            if (!dict.TryAdd(t.Name, t))
+                throw new InvalidOperationException($"Дубликат транспорта '{t.Name}': зарегистрирован дважды. Проверьте Use* вызовы.");
+        }
+        return dict;
+    }
 
     public ITransport Default => Get(defaultTransport);
 

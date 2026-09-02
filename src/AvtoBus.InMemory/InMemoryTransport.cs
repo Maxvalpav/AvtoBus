@@ -158,6 +158,10 @@ public sealed class InMemoryTransport : ITransport,
         {
             // Штатная остановка.
         }
+        catch (ObjectDisposedException)
+        {
+            // _shutdown disposed before loop exit.
+        }
     }
 
     /// <summary>Принудительно проталкивает отложенные сообщения — нужно тестам с виртуальным временем.</summary>

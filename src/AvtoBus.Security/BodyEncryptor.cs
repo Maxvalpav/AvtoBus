@@ -23,7 +23,7 @@ internal static class BodyEncryptor
         var tag = new byte[16];
         var ciphertext = new byte[body.Length];
 
-        using (var aes = new AesGcm(key, tag.Length))
+        using (var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize))
         {
             aes.Encrypt(nonce, body, ciphertext, tag, null);
         }
@@ -45,7 +45,7 @@ internal static class BodyEncryptor
         var plaintextLength = payload.Length - tagLength;
         var raw = new byte[plaintextLength];
 
-        using var aes = new AesGcm(key, tagLength);
+        using var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize);
         aes.Decrypt(nonce, payload[..^tagLength], payload[^tagLength..], raw, null);
 
         return raw;

@@ -23,10 +23,20 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
         var now = time.GetUtcNow();
         SweepIfDue(now);
 
-        if (_seen.Count >= MaxEntries)
-            SweepIfDue(now.Add(window)); // force sweep if over limit
-
-        return _seen.TryAdd((messageId, consumer), now);
+        lock (_sweepGate)
+        {
+            if (_seen.Count >= MaxEntries)
+            {
+                SweepIfDue(now, force: true);
+                if (_seen.Count >= MaxEntries)
+                {
+                    // Evict oldest 10% (50k) — deterministic OrderBy, no heap inversion pitfalls
+                    var oldest = _seen.OrderBy(kv => kv.Value).Take(MaxEntries / 10).ToList();
+                    foreach (var kv in oldest) _seen.TryRemove(kv.Key, out _);
+                }
+            }
+            return _seen.TryAdd((messageId, consumer), now);
+        }
     }
 
     /// <summary>Снимает отметку: обработка провалилась, ретрай не должен считаться дубликатом.</summary>
@@ -35,14 +45,14 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
     public int Count => _seen.Count;
 
     /// <summary>Чистит протухшие записи. Раз в окно, не на каждом сообщении.</summary>
-    private void SweepIfDue(DateTimeOffset now)
+    private void SweepIfDue(DateTimeOffset now, bool force = false)
     {
-        if (now - _lastSweep < window)
+        if (!force && now - _lastSweep < window)
             return;
 
         lock (_sweepGate)
         {
-            if (now - _lastSweep < window)
+            if (!force && now - _lastSweep < window)
                 return;
 
             _lastSweep = now;

@@ -42,12 +42,17 @@ public class PublishLatencyBench : IAsyncDisposable
         _host.StartAsync().GetAwaiter().GetResult();
         _bus = _host.Services.GetRequiredService<IBus>();
         _message = new OrderPlaced(Guid.NewGuid(), 100m, "USD");
+        _roundTrip = Channel.CreateBounded<OrderPlaced>(new BoundedChannelOptions(1) { SingleReader = true, SingleWriter = true });
     }
 
     [IterationSetup]
-    public void IterationSetup() =>
-        _roundTrip = Channel.CreateBounded<OrderPlaced>(
-            new BoundedChannelOptions(1) { SingleReader = true, SingleWriter = true });
+    public void IterationSetup()
+    {
+        // Drain previous iteration's channel if not read (PublishOnly leaves message)
+        if (_roundTrip.Reader.TryRead(out _)) { }
+        if (_roundTrip.Reader.Count == 0) return;
+        _roundTrip = Channel.CreateBounded<OrderPlaced>(new BoundedChannelOptions(1) { SingleReader = true, SingleWriter = true });
+    }
 
     /// <summary>Полный пайплайн до консьюмера: Publish + ожидание обработки в хендлере.</summary>
     [Benchmark]
@@ -72,7 +77,7 @@ public class PublishLatencyBench : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_host is not null)
-            await _host.StopAsync();
+        if (_host is not null) { await _host.StopAsync(); _host.Dispose(); }
+        _roundTrip.Writer.TryComplete();
     }
 }

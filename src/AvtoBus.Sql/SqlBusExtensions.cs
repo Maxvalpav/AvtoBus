@@ -19,7 +19,7 @@ public static class SqlBusExtensions
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<SqlTransport>());
 
-        bus.Options.DefaultTransport = "sql";
+        bus.TrySetDefaultTransport("sql");
         return bus;
     }
 }

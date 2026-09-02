@@ -11,9 +11,19 @@ namespace AvtoBus.Pipeline;
 /// </summary>
 public sealed class WasmOptions
 {
-    public string WasmPath { get; set; } = "";
+    private string _wasmPath = "";
+    public string WasmPath { get => _wasmPath; set => _wasmPath = Normalize(value); }
     public bool HotReload { get; set; } = true;
     public Func<byte[], byte[]?>? ManagedFallback { get; set; }
+    public long MaxPayloadBytes { get; set; } = 5 * 1024 * 1024;
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    private static string Normalize(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "";
+        if (path.Contains("..")) throw new ArgumentException("WasmPath must not contain '..' (path traversal)", nameof(path));
+        return path;
+    }
 }
 
 public interface IWasmTransform
@@ -25,8 +35,26 @@ public sealed class ManagedWasmTransform(WasmOptions opts) : IWasmTransform
 {
     public byte[]? Transform(byte[] body, IReadOnlyDictionary<string, string> headers)
     {
-        if (opts.ManagedFallback is not null) return opts.ManagedFallback(body);
-        // Без Wasmtime — passthrough. Реальный путь: var engine = new Engine(); var module = Module.FromFile(engine, opts.WasmPath);
+        if (body.Length > opts.MaxPayloadBytes) throw new InvalidOperationException($"WASM payload {body.Length} exceeds limit {opts.MaxPayloadBytes}");
+        if (opts.ManagedFallback is not null)
+        {
+            using var cts = new CancellationTokenSource(opts.Timeout);
+            var task = Task.Run(() => opts.ManagedFallback(body), cts.Token);
+            try
+            {
+                if (!task.Wait(opts.Timeout)) { cts.Cancel(); return null; }
+                var result = task.Result;
+                if (result is not null && result.Length > opts.MaxPayloadBytes) throw new InvalidOperationException("WASM output exceeds payload limit — possible OOM");
+                return result;
+            }
+            catch (AggregateException ex) when (ex.InnerException is not null) { throw ex.InnerException; }
+        }
+        if (!string.IsNullOrEmpty(opts.WasmPath))
+        {
+            if (!File.Exists(opts.WasmPath)) throw new FileNotFoundException($"WASM module not found: {opts.WasmPath}", opts.WasmPath);
+            var info = new FileInfo(opts.WasmPath);
+            if (info.Length > 20 * 1024 * 1024) throw new InvalidOperationException("WASM module too large (20MB limit)");
+        }
         return body;
     }
 }

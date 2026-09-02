@@ -48,6 +48,7 @@ public sealed class RetryBudget(double fraction, TimeSpan window, TimeProvider t
     private void RotateIfNeeded()
     {
         var now = time.GetUtcNow();
+        if (now < _windowStart) { _windowStart = now; _total = 0; _retries = 0; return; }
         if (now - _windowStart >= window)
         {
             _windowStart = now;

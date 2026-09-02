@@ -17,7 +17,7 @@ public static class RabbitMqBusExtensions
         bus.Services.AddSingleton(sp => new RabbitMqTransport(options));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<RabbitMqTransport>());
 
-        bus.Options.DefaultTransport = "rabbitmq";
+        bus.TrySetDefaultTransport("rabbitmq");
         return bus;
     }
 }

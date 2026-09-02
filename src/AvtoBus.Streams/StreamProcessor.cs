@@ -132,6 +132,7 @@ public sealed class StreamJoinProcessor<TLeft, TRight, TOut> : IStreamProcessor<
     private readonly IStateStore<string, TRight> _rightStore;
     private readonly TimeSpan _joinWindow;
     private readonly Func<TLeft, TRight, TOut> _joiner;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _rightTimestamps = new();
     public StreamJoinProcessor(IStateStore<string, TRight> rightStore, TimeSpan joinWindow, Func<TLeft, TRight, TOut> joiner)
     {
         _rightStore = rightStore; _joinWindow = joinWindow; _joiner = joiner;
@@ -142,15 +143,25 @@ public sealed class StreamJoinProcessor<TLeft, TRight, TOut> : IStreamProcessor<
     {
         await foreach (var rec in input.WithCancellation(ct))
         {
-            _ = _joinWindow; // window-aware join — для простоты TTL на уровне store, как Kafka Streams `joinWindow`
-            var right = await _rightStore.GetAsync(rec.Key, ct);
+            var right = await _rightStore.GetAsync(rec.Key, ct).ConfigureAwait(false);
             if (right is not null)
+            {
+                if (_rightTimestamps.TryGetValue(rec.Key, out var ts) && rec.Timestamp - ts > _joinWindow)
+                {
+                    await _rightStore.DeleteAsync(rec.Key, ct).ConfigureAwait(false);
+                    _rightTimestamps.TryRemove(rec.Key, out _);
+                    continue;
+                }
                 yield return new StreamRecord<string, TOut>(rec.Key, _joiner(rec.Value, right), rec.Timestamp);
+            }
         }
     }
 
     public async ValueTask PutRightAsync(string key, TRight value, CancellationToken ct)
-        => await _rightStore.PutAsync(key, value, ct);
+    {
+        await _rightStore.PutAsync(key, value, ct).ConfigureAwait(false);
+        _rightTimestamps[key] = DateTimeOffset.UtcNow;
+    }
 }
 
 /// <summary>

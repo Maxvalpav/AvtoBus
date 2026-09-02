@@ -8,23 +8,31 @@ namespace AvtoBus.Configuration;
 /// </summary>
 public sealed class RoutingTable
 {
-    private readonly Dictionary<Type, RouteEntry> _explicitRoutes = [];
-    private readonly List<(Func<Type, bool> Predicate, RouteEntry Route)> _rules = [];
+    internal readonly Dictionary<Type, RouteEntry> _explicitRoutes = [];
+    internal readonly List<(Func<Type, bool> Predicate, RouteEntry Route)> _rules = [];
     private readonly ConcurrentDictionary<(Type, OutgoingKind), RouteEntry> _cache = new();
 
     public void MapCommand(Type messageType, string queue, string? transport = null)
-        => _explicitRoutes[messageType] = new RouteEntry(TransportDestination.Queue(queue), transport);
+    {
+        if (_explicitRoutes.TryGetValue(messageType, out var existing) && transport is null) transport = existing.Transport;
+        _explicitRoutes[messageType] = new RouteEntry(TransportDestination.Queue(queue), transport);
+        _cache.Clear();
+    }
 
     public void MapEvent(Type messageType, string topic, string? transport = null)
-        => _explicitRoutes[messageType] = new RouteEntry(TransportDestination.Topic(topic), transport);
+    {
+        if (_explicitRoutes.TryGetValue(messageType, out var existing) && transport is null) transport = existing.Transport;
+        _explicitRoutes[messageType] = new RouteEntry(TransportDestination.Topic(topic), transport);
+        _cache.Clear();
+    }
 
     /// <summary>Правило для группы типов: например, всё из namespace <c>Analytics</c> — в Kafka.</summary>
     public void MapRule(Func<Type, bool> predicate, TransportDestination destination, string? transport = null)
-        => _rules.Add((predicate, new RouteEntry(destination, transport)));
+    { _rules.Add((predicate, new RouteEntry(destination, transport))); _cache.Clear(); }
 
     /// <summary>Направляет все типы, подходящие под предикат, в указанный транспорт, не меняя назначения.</summary>
     public void MapTransport(Func<Type, bool> predicate, string transport)
-        => _rules.Add((predicate, new RouteEntry(default, transport)));
+    { _rules.Add((predicate, new RouteEntry(default, transport))); _cache.Clear(); }
 
     public RouteEntry Resolve(Type messageType, OutgoingKind kind)
         => _cache.GetOrAdd((messageType, kind), key => ResolveCore(key.Item1, key.Item2));
@@ -71,7 +79,13 @@ public sealed class RoutingTable
         return MessageTypeNaming.ToKebabCase(messageType.Name);
     }
 
-    private static bool IsCommand(Type type) => typeof(ICommand).IsAssignableFrom(type);
+    private static bool IsCommand(Type type)
+    {
+        var isCmd = typeof(ICommand).IsAssignableFrom(type);
+        var isEvt = typeof(IEvent).IsAssignableFrom(type);
+        if (isCmd && isEvt) return false; // тип-«хамелеон» → по умолчанию топик (fan-out), не очередь
+        return isCmd;
+    }
 }
 
 /// <param name="Destination">Куда отправлять. <c>default</c> означает «по конвенции».</param>
@@ -92,13 +106,25 @@ public sealed class RouteConfigurator(RoutingTable table)
     {
         public CommandRoute<T> ToQueue(string queue)
         {
-            table.MapCommand(typeof(T), queue);
+            // Preserve already-set transport via Via() if called first
+            var existing = table._explicitRoutes.TryGetValue(typeof(T), out var e) ? e.Transport : null;
+            if (table._explicitRoutes.ContainsKey(typeof(T)) && table._rules.Any(r => r.Predicate(typeof(T))))
+            {
+                // Via was called first as MapTransport — migrate it into explicit route
+                var viaTransport = table._rules.Where(r => r.Predicate(typeof(T))).Select(r => r.Route.Transport).LastOrDefault(t => t != null);
+                if (viaTransport != null) table._rules.RemoveAll(r => r.Predicate(typeof(T)) && r.Route.Destination.Name is null);
+                table.MapCommand(typeof(T), queue, viaTransport ?? existing);
+            }
+            else table.MapCommand(typeof(T), queue);
             return this;
         }
 
         public CommandRoute<T> Via(string transport)
         {
-            table.MapTransport(type => type == typeof(T), transport);
+            if (table._explicitRoutes.TryGetValue(typeof(T), out var existing))
+                table._explicitRoutes[typeof(T)] = existing with { Transport = transport };
+            else
+                table.MapTransport(type => type == typeof(T), transport);
             return this;
         }
     }
@@ -107,13 +133,23 @@ public sealed class RouteConfigurator(RoutingTable table)
     {
         public EventRoute<T> ToTopic(string topic)
         {
-            table.MapEvent(typeof(T), topic);
+            var existing = table._explicitRoutes.TryGetValue(typeof(T), out var e) ? e.Transport : null;
+            if (table._explicitRoutes.ContainsKey(typeof(T)) && table._rules.Any(r => r.Predicate(typeof(T))))
+            {
+                var viaTransport = table._rules.Where(r => r.Predicate(typeof(T))).Select(r => r.Route.Transport).LastOrDefault(t => t != null);
+                if (viaTransport != null) table._rules.RemoveAll(r => r.Predicate(typeof(T)) && r.Route.Destination.Name is null);
+                table.MapEvent(typeof(T), topic, viaTransport ?? existing);
+            }
+            else table.MapEvent(typeof(T), topic);
             return this;
         }
 
         public EventRoute<T> Via(string transport)
         {
-            table.MapTransport(type => type == typeof(T), transport);
+            if (table._explicitRoutes.TryGetValue(typeof(T), out var existing))
+                table._explicitRoutes[typeof(T)] = existing with { Transport = transport };
+            else
+                table.MapTransport(type => type == typeof(T), transport);
             return this;
         }
     }
@@ -125,7 +161,8 @@ public sealed class RouteConfigurator(RoutingTable table)
         public NamespaceRoute FromNamespace(string @namespace)
         {
             var previous = _predicate;
-            _predicate = type => previous(type)
+            var captured = previous;
+            _predicate = type => captured(type)
                                  && type.Namespace is { } ns
                                  && ns.StartsWith(@namespace, StringComparison.Ordinal);
             return this;
@@ -133,13 +170,15 @@ public sealed class RouteConfigurator(RoutingTable table)
 
         public NamespaceRoute ToTopic(string topic)
         {
-            table.MapRule(_predicate, TransportDestination.Topic(topic));
+            var snap = _predicate;
+            table.MapRule(snap, TransportDestination.Topic(topic));
             return this;
         }
 
         public NamespaceRoute Via(string transport)
         {
-            table.MapTransport(_predicate, transport);
+            var snap = _predicate;
+            table.MapTransport(snap, transport);
             return this;
         }
     }

@@ -7,7 +7,7 @@ namespace AvtoBus;
 /// Таблица «строковое имя контракта ↔ CLR-тип». Строится при старте и замораживается:
 /// lookup по <see cref="FrozenDictionary{TKey,TValue}"/> быстрее обычного словаря (идея 363).
 /// </summary>
-public sealed class MessageRegistry
+public sealed class MessageRegistry : ITypeResolver
 {
     private readonly FrozenDictionary<string, Type> _byName;
     private readonly FrozenDictionary<Type, string> _byType;
@@ -49,6 +49,15 @@ public sealed class MessageRegistry
 
     public bool TryResolve(string messageType, [NotNullWhen(true)] out Type? type)
         => _byName.TryGetValue(messageType, out type);
+
+    bool ITypeResolver.TryResolve(string messageType, out Type type)
+    {
+        if (_byName.TryGetValue(messageType, out var t)) { type = t; return true; }
+        type = null!;
+        return false;
+    }
+
+    string ITypeResolver.NameOf(Type type) => NameOf(type);
 
     public string NameOf(Type type)
         => _byType.TryGetValue(type, out var name) ? name : MessageTypeNaming.NameOf(type);

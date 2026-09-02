@@ -27,56 +27,56 @@ public sealed class AvtoBusEventSource : EventSource
 
     [Event(PublishedEventId, Level = EventLevel.Informational)]
     public void MessagePublished(string messageType, string destination, int bytes)
-        => WriteEvent(PublishedEventId, messageType, destination, bytes);
+    { if (IsEnabled()) WriteEvent(PublishedEventId, messageType, destination, bytes); }
 
     [Event(ConsumedEventId, Level = EventLevel.Informational)]
     public void MessageConsumed(string messageType, string source, long durationMs)
-        => WriteEvent(ConsumedEventId, messageType, source, durationMs);
+    { if (IsEnabled()) WriteEvent(ConsumedEventId, messageType, source, durationMs); }
 
     [Event(FailedEventId, Level = EventLevel.Error)]
     public void MessageFailed(string messageType, string messageId, int attempt, string exception)
-        => WriteEvent(FailedEventId, messageType, messageId, attempt, exception);
+    { if (IsEnabled()) WriteEvent(FailedEventId, messageType, messageId, attempt, exception); }
 
     [Event(DecisionEventId, Level = EventLevel.Warning)]
     public void DecisionMade(string messageType, string messageId, string decision, string reason)
-        => WriteEvent(DecisionEventId, messageType, messageId, decision, reason);
+    { if (IsEnabled()) WriteEvent(DecisionEventId, messageType, messageId, decision, reason); }
 
     [Event(ReplayedEventId, Level = EventLevel.Informational)]
     public void MessageReplayed(string messageType, string messageId, string destination)
-        => WriteEvent(ReplayedEventId, messageType, messageId, destination);
+    { if (IsEnabled()) WriteEvent(ReplayedEventId, messageType, messageId, destination); }
 
     private const int CanaryCompletedEventId = 6;
     private const int CanaryLostEventId = 7;
 
     [Event(CanaryCompletedEventId, Level = EventLevel.Informational)]
     public void CanaryCompleted(double rttMs)
-        => WriteEvent(CanaryCompletedEventId, rttMs);
+    { if (IsEnabled()) WriteEvent(CanaryCompletedEventId, rttMs); }
 
     [Event(CanaryLostEventId, Level = EventLevel.Critical)]
     public void CanaryLost(string reason)
-        => WriteEvent(CanaryLostEventId, reason);
+    { if (IsEnabled()) WriteEvent(CanaryLostEventId, reason); }
 
     private const int TrafficAnomalyEventId = 8;
 
     [Event(TrafficAnomalyEventId, Level = EventLevel.Error)]
     public void TrafficAnomaly(string messageType, string direction, long count, double ratio)
-        => WriteEvent(TrafficAnomalyEventId, messageType, direction, count, ratio);
+    { if (IsEnabled()) WriteEvent(TrafficAnomalyEventId, messageType, direction, count, ratio); }
 
     private const int ContextTruncatedEventId = 9;
 
     [Event(ContextTruncatedEventId, Level = EventLevel.Warning)]
     public void ContextTruncated(string messageType, string reason)
-        => WriteEvent(ContextTruncatedEventId, messageType, reason);
+    { if (IsEnabled()) WriteEvent(ContextTruncatedEventId, messageType, reason); }
 
     private const int BlacklistedEventId = 10;
 
     [Event(BlacklistedEventId, Level = EventLevel.Warning)]
     public void MessageBlacklisted(string messageType, string messageId, string reason)
-        => WriteEvent(BlacklistedEventId, messageType, messageId, reason);
+    { if (IsEnabled()) WriteEvent(BlacklistedEventId, messageType, messageId, reason); }
 
     private const int SecurityViolationEventId = 11;
 
     [Event(SecurityViolationEventId, Level = EventLevel.Warning)]
     public void MessageSecurityViolation(string messageType, string reason)
-        => WriteEvent(SecurityViolationEventId, messageType, reason);
+    { if (IsEnabled()) WriteEvent(SecurityViolationEventId, messageType, reason); }
 }

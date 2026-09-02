@@ -8,17 +8,17 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore кэшируется отдельно: правки исходников не перекачивают пакеты.
-COPY NuGet.config Directory.Build.props Directory.Packages.props ./
+COPY nuget.config global.json Directory.Build.props Directory.Packages.props ./
 COPY src/ src/
-RUN dotnet publish src/AvtoBus.Core/AvtoBus.Core.csproj -c Release -o /app --no-restore
+RUN dotnet restore src/AvtoBus.Cli/AvtoBus.Cli.csproj && dotnet publish src/AvtoBus.Cli/AvtoBus.Cli.csproj -c Release -o /app --no-restore
 
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app ./
 
-# chiseled-образы уже бегут под non-root пользователем.
-USER $APP_UID
+# chiseled-образы уже бегут под non-root пользователем (1654 = app).
+USER 1654
 
 # Пробы: /healthz (liveness), /readyz (readiness), /startupz (идея 468).
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "MyWorker.dll"]
+ENTRYPOINT ["dotnet", "avtobus.dll"]

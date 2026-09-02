@@ -33,20 +33,21 @@ public sealed class ReplyRouter
     {
         using var timeoutSource = new CancellationTokenSource(timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutSource.Token);
-        using var registration = linked.Token.Register(static state =>
-        {
-            var source = (TaskCompletionSource<object>)state!;
-            source.TrySetCanceled();
-        }, pending.Completion);
 
         try
         {
-            return await pending.Completion.Task.ConfigureAwait(false);
+            return await pending.Completion.Task.WaitAsync(linked.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested && !ct.IsCancellationRequested)
         {
+            if (!pending.Completion.Task.IsCompleted) pending.Completion.TrySetCanceled();
             throw new TimeoutException(
                 $"Ответ на запрос {requestId} не получен за {timeout.TotalSeconds:0.##} с.");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            if (!pending.Completion.Task.IsCompleted) pending.Completion.TrySetCanceled(ct);
+            throw;
         }
         finally
         {
@@ -78,8 +79,14 @@ public sealed class ReplyRouter
         => _pending.TryRemove(requestId, out var pending)
            && pending.Completion.TrySetException(exception);
 
-    /// <summary>Тип ожидаемого ответа — нужен приёмнику для десериализации.</summary>
+    /// <summary>Тип ожидаемого ответа — нужен приёмнику для десериализации. TryComplete — атомарно.</summary>
     public bool IsAwaiting(Guid requestId) => _pending.ContainsKey(requestId);
+
+    public bool TryGetReplyType(Guid requestId, out Type? replyType)
+    {
+        if (_pending.TryGetValue(requestId, out var p)) { replyType = p.ReplyType; return true; }
+        replyType = null; return false;
+    }
 
     /// <summary>Число активных ожиданий ответа. После таймаута/отмены должно возвращаться к 0.</summary>
     public int PendingCount => _pending.Count;

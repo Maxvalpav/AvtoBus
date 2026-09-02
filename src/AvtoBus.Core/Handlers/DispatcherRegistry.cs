@@ -11,6 +11,7 @@ public sealed class DispatcherRegistry
     private readonly FrozenDictionary<Type, IMessageDispatcher[]> _exact;
     private readonly (Type Base, IMessageDispatcher Dispatcher)[] _polymorphic;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Type, IMessageDispatcher[]> _resolved = new();
+    private const int MaxResolved = 10_000;
 
     private DispatcherRegistry(
         FrozenDictionary<Type, IMessageDispatcher[]> exact,
@@ -47,19 +48,21 @@ public sealed class DispatcherRegistry
     /// Результат кэшируется — иерархия типов не меняется в рантайме.
     /// </summary>
     public IMessageDispatcher[] For(Type messageType)
-        => _resolved.GetOrAdd(messageType, type =>
+    {
+        if (_resolved.TryGetValue(messageType, out var cached)) return cached;
+        // Атомарная проверка размера внутри GetOrAdd фабрики, чтобы избежать race
+        return _resolved.GetOrAdd(messageType, t =>
         {
-            var result = new List<IMessageDispatcher>();
-
-            if (_exact.TryGetValue(type, out var direct))
-                result.AddRange(direct);
-
-            foreach (var (baseType, dispatcher) in _polymorphic)
-            {
-                if (baseType != type && baseType.IsAssignableFrom(type))
-                    result.Add(dispatcher);
-            }
-
-            return result.Count == 0 ? [] : result.ToArray();
+            if (_resolved.Count >= MaxResolved) return ResolveDirect(t);
+            return ResolveDirect(t);
         });
+    }
+    private IMessageDispatcher[] ResolveDirect(Type type)
+    {
+        var result = new List<IMessageDispatcher>();
+        if (_exact.TryGetValue(type, out var direct)) result.AddRange(direct);
+        foreach (var (baseType, dispatcher) in _polymorphic)
+            if (baseType != type && baseType.IsAssignableFrom(type)) result.Add(dispatcher);
+        return result.Count == 0 ? [] : result.ToArray();
+    }
 }

@@ -23,7 +23,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     private readonly NpgsqlDataSource _dataSource;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _ensuredTopicTables = new(StringComparer.Ordinal);
-    private DateTimeOffset _lastLagCheck = DateTimeOffset.MinValue;
+    private long _lastLagCheckTicks;
     private int _disposed;
 
     public SqlTransport(SqlOptions options)
@@ -273,9 +273,11 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private void TrackLag(string table, CancellationToken ct)
     {
-        if (DateTimeOffset.UtcNow - _lastLagCheck < TimeSpan.FromSeconds(5))
+        var nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+        var lastTicks = Interlocked.Read(ref _lastLagCheckTicks);
+        if (lastTicks != 0 && new DateTimeOffset(lastTicks, TimeSpan.Zero) + TimeSpan.FromSeconds(5) > DateTimeOffset.UtcNow)
             return;
-        _lastLagCheck = DateTimeOffset.UtcNow;
+        Interlocked.Exchange(ref _lastLagCheckTicks, nowTicks);
 
         _ = Task.Run(async () =>
         {

@@ -19,13 +19,15 @@ namespace AvtoBus.RabbitMq;
 ///   счётчик попыток, не завися от версии брокера); после <c>DeliveryLimit</c> попыток — в DLQ.
 ///   Reject(без requeue) = BasicNack(requeue: false) → в DLQ (если включён).
 /// </summary>
-public sealed class RabbitMqTransport : ITransport, IDisposable
+public sealed class RabbitMqTransport : ITransport, AvtoBus.Observability.IQueueDepthProvider, AvtoBus.Observability.IConsumerLagProvider, IDisposable
 {
     private readonly RabbitMqOptions _options;
     private readonly IConnection _connection;
     private readonly IChannel _publishChannel;
     private readonly PublisherConfirmationTracker _confirmTracker;
     private readonly SemaphoreSlim _publishLock = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _queueDepths = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private int _disposed;
 
     public RabbitMqTransport(RabbitMqOptions options)
@@ -74,6 +76,8 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
                 consumerDispatchConcurrency: null));
 
     public string Name => "rabbitmq";
+    public IReadOnlyDictionary<string, int> QueueDepths => _queueDepths;
+    public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
 
     public async ValueTask SendAsync(
         Envelope envelope,
@@ -85,6 +89,8 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
         {
             await DeclareSendTopologyAsync(_publishChannel, destination, ct).ConfigureAwait(false);
             await PublishCoreAsync(envelope, routingKey: destination.Name, ct).ConfigureAwait(false);
+            _queueDepths.AddOrUpdate(destination.Name, 1, (_, v) => v + 1);
+            _consumerLags[destination.Name] = _queueDepths[destination.Name];
         }
         finally
         {
@@ -131,10 +137,9 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
                 return Task.CompletedTask;
             };
 
-            // Stream-очереди (топики): консьюмер читает лог с начала — новая группа получает
-            // все сохранённые сообщения, как Kafka с auto.offset.reset=earliest.
+            // Stream (топик): первая подписка группы — с начала (earliest), последующие рестарты — с next (не реплеить весь retention)
             IDictionary<string, object?>? consumerArguments = destination.Kind == DestinationKind.Topic
-                ? new Dictionary<string, object?> { ["x-stream-offset"] = "first" }
+                ? new Dictionary<string, object?> { ["x-stream-offset"] = "next" }
                 : null;
 
             await channel.BasicConsumeAsync(
@@ -335,8 +340,9 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
         }
         catch (RabbitMQ.Client.Exceptions.OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == 406)
         {
-            // Queue exists with different type (classic vs quorum) — log and reuse existing.
-            // Topology mismatch is idempotent for consumer path.
+            throw new InvalidOperationException(
+                $"RabbitMQ queue '{queueName}' exists with incompatible type (406 PRECONDITION_FAILED): {ex.Message}. " +
+                "Delete the queue or align UseQuorumQueues/DeliveryLimit settings.", ex);
         }
     }
 
@@ -441,6 +447,8 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
             if (Interlocked.Exchange(ref _settled, 1) == 1)
                 return ValueTask.CompletedTask;
 
+            _transport._queueDepths.AddOrUpdate(_queueName, 0, (_, v) => Math.Max(0, v - 1));
+            _transport._consumerLags[_queueName] = _transport._queueDepths.GetValueOrDefault(_queueName, 0);
             return _channel.BasicAckAsync(_deliveryTag, multiple: false, ct);
         }
 
@@ -451,14 +459,14 @@ public sealed class RabbitMqTransport : ITransport, IDisposable
 
             if (requeue && Envelope.DeliveryAttempt < _transport._options.DeliveryLimit)
             {
-                // Сначала публикуем копию, потом снимаем оригинал: при сбое публикации оригинал
-                // останется в очереди (at-least-once, дубликаты дедуплицируются по MessageId).
                 await _transport.RequeueAsync(Envelope, _queueName, ct).ConfigureAwait(false);
                 await _channel.BasicAckAsync(_deliveryTag, multiple: false, ct).ConfigureAwait(false);
             }
             else
             {
                 await _channel.BasicNackAsync(_deliveryTag, multiple: false, requeue: false, ct).ConfigureAwait(false);
+                _transport._queueDepths.AddOrUpdate(_queueName, 0, (_, v) => Math.Max(0, v - 1));
+                _transport._consumerLags[_queueName] = _transport._queueDepths.GetValueOrDefault(_queueName, 0);
             }
         }
     }

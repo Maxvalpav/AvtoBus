@@ -59,6 +59,14 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
             Headers = BuildHeaders(messageOptions, parent, registry.NameOf(messageType)),
         };
 
+        // Сжатие outbound (идея 105): перед подписью/шифрованием
+        if (options.Compression is { } comp && AvtoBus.Compression.CompressionHelper.ShouldCompress(envelope.Body, comp))
+        {
+            var compressed = AvtoBus.Compression.CompressionHelper.Compress(envelope.Body, comp);
+            envelope = envelope with { Body = compressed };
+            envelope = envelope.WithHeader(BusHeaders.ContentEncoding, "gzip");
+        }
+
         // Подключенная подсистема безопасности подписывает (и при включённом шифровании
         // шифрует) конверт на выходе — до транспорта (идея 451).
         return options.EnvelopeSecurity is { } security
@@ -127,6 +135,10 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
         {
             foreach (var (key, value) in messageOptions.Headers)
             {
+                // Запрещаем подделку служебных заголовков безопасности (идея 451)
+                if (key is "avtobus-signature" or "avtobus-signed-by" or "avtobus-encryption-nonce" or BusHeaders.User or BusHeaders.ContentEncoding)
+                    continue;
+                if (key.Length > 256 || value.Length > 4096) continue; // sanity limits
                 if (headers.Count >= options.MaxHeaderCount)
                 {
                     truncated = true;
@@ -174,24 +186,46 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
         if (totalBytes <= options.MaxHeaderBytes)
             return false;
 
-        // Account for hops header that must be preserved
-        var hopsBytes = headers.TryGetValue(BusHeaders.Hops, out var hopsVal)
-            ? ByteLen(BusHeaders.Hops) + ByteLen(hopsVal)
-            : 0;
-        var budget = options.MaxHeaderBytes - hopsBytes;
-        if (budget < 0) budget = 0;
+        // Security / tracing headers that must survive truncation — убираются в последнюю очередь
+        var protectedHeaders = new HashSet<string>(StringComparer.Ordinal)
+        {
+            BusHeaders.Hops, BusHeaders.User, BusHeaders.Initiator,
+            BusHeaders.IdempotencyKey, BusHeaders.ContentEncoding, BusHeaders.SchemaId,
+            "avtobus-user", "avtobus-initiator", "traceparent", "tracestate",
+            "baggage", BusHeaders.TraceParent, BusHeaders.TraceState,
+        };
 
+        var protectedBytes = headers.Where(kvp => protectedHeaders.Contains(kvp.Key))
+            .Sum(kvp => ByteLen(kvp.Key) + ByteLen(kvp.Value));
+        _ = protectedBytes; // tracked for budget awareness
+
+        // First evict non-protected headers, largest first
         foreach (var key in headers
-                     .Where(kvp => kvp.Key != BusHeaders.Hops)
+                     .Where(kvp => !protectedHeaders.Contains(kvp.Key))
                      .OrderByDescending(kvp => ByteLen(kvp.Value))
                      .Select(kvp => kvp.Key)
                      .ToArray())
         {
             if (totalBytes <= options.MaxHeaderBytes)
                 break;
-
             totalBytes -= ByteLen(key) + ByteLen(headers[key]);
             headers.Remove(key);
+        }
+
+        // Only if still over budget, evict protected headers (except Hops) smallest-impact first
+        if (totalBytes > options.MaxHeaderBytes)
+        {
+            foreach (var key in headers
+                         .Where(kvp => kvp.Key != BusHeaders.Hops && protectedHeaders.Contains(kvp.Key))
+                         .OrderByDescending(kvp => ByteLen(kvp.Value))
+                         .Select(kvp => kvp.Key)
+                         .ToArray())
+            {
+                if (totalBytes <= options.MaxHeaderBytes)
+                    break;
+                totalBytes -= ByteLen(key) + ByteLen(headers[key]);
+                headers.Remove(key);
+            }
         }
 
         return true;

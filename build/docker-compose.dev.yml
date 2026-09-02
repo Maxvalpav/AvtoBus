@@ -5,8 +5,8 @@ services:
     image: rabbitmq:4-management-alpine
     ports: ["5672:5672", "15672:15672"]
     environment:
-      RABBITMQ_DEFAULT_USER: avtobus
-      RABBITMQ_DEFAULT_PASS: avtobus
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-avtobus}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-avtobus}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -16,8 +16,8 @@ services:
     image: postgres:17-alpine
     ports: ["5432:5432"]
     environment:
-      POSTGRES_USER: avtobus
-      POSTGRES_PASSWORD: avtobus
+      POSTGRES_USER: ${POSTGRES_USER:-avtobus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avtobus}
       POSTGRES_DB: avtobus
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -29,6 +29,10 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
 
   kafka:
     image: apache/kafka-native:3.8.0
@@ -39,21 +43,25 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     healthcheck:
-      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20 || exit 1"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s
       retries: 10
 
+  nats:
+    image: nats:2.11-alpine
+    ports: ["4222:4222", "8222:8222"]
+    command: ["-js"]
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.62
     ports: ["16686:16686", "4317:4317", "4318:4318"]
     environment:
       COLLECTOR_OTLP_ENABLED: true
 
   grafana:
-    image: grafana/grafana-oss:latest
+    image: grafana/grafana-oss:11.3.0
     ports: ["3000:3000"]
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: true
