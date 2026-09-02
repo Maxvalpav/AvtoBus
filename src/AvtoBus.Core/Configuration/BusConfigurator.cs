@@ -106,6 +106,14 @@ public sealed class BusOptions
     /// <summary>mTLS опции, пробрасываются транспортам.</summary>
     public object? TlsOptions { get; set; }
 
+    /// <summary>Профиль данных: Gdpr/152-ФЗ включает маскирование PII по умолчанию (идея 498).</summary>
+    public DataProfile DataProfile { get; set; } = DataProfile.Default;
+
+    /// <summary>Аварийный режим «только чтение»: исходящие публикации блокируются (идея 497).</summary>
+    public bool IsReadOnly { get; set; }
+
+    public string ReadOnlyReason { get; set; } = "readonly by operator";
+
     /// <summary>Локальные in-process очереди (идея 15).</summary>
     public Dictionary<string, int> LocalQueues { get; } = [];
 
@@ -137,6 +145,13 @@ public sealed class BusOptions
         "который пересоздаёт сериализатор с контекстом; reflection-ветка под trimming не используется.")]
     private static SerializerRegistry CreateDefaultSerializerRegistry()
         => new(new JsonMessageSerializer());
+}
+
+public enum DataProfile
+{
+    Default = 0,
+    Gdpr = 1,
+    Ru152Fz = 2
 }
 
 /// <summary>
@@ -619,6 +634,23 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
         Services.AddSingleton(opts);
         Services.AddSingleton<AvtoBus.Pipeline.CompressionMiddleware>();
         Options.PipelineSteps.Add(b => b.Use<AvtoBus.Pipeline.CompressionMiddleware>());
+        return this;
+    }
+
+    /// <summary>Профиль данных (идея 498): Gdpr/152-ФЗ включает PII-маскирование по умолчанию.</summary>
+    public BusConfigurator UseDataProfile(DataProfile profile)
+    {
+        Options.DataProfile = profile;
+        if (profile is DataProfile.Gdpr or DataProfile.Ru152Fz)
+            Options.PiiMaskingEnabled = true;
+        return this;
+    }
+
+    /// <summary>Аварийный режим «только чтение» (идея 497): блокирует исходящие каскады, обработка остаётся.</summary>
+    public BusConfigurator UseReadOnly(bool enabled = true, string reason = "readonly by operator")
+    {
+        Options.IsReadOnly = enabled;
+        Options.ReadOnlyReason = reason;
         return this;
     }
 

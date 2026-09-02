@@ -297,15 +297,30 @@ public sealed class MessageProcessor(
                 return ProcessingDecision.Ack;
         }
 
+        if (options.IsReadOnly && context.Outgoing.Count > 0)
+        {
+            BusTelemetry.RecordDecision(activity, "readonly-suppressed", options.ReadOnlyReason);
+            logger.LogWarning("Readonly режим ({Reason}): {Count} исходящих {MessageType} подавлено", options.ReadOnlyReason, context.Outgoing.Count, envelope.MessageType);
+            return ProcessingDecision.Ack;
+        }
+
         foreach (var outgoing in context.Outgoing)
         {
-            await bus.DispatchAsync(
-                outgoing.Message,
-                outgoing.Message.GetType(),
-                outgoing.Kind,
-                outgoing.Options,
-                envelope,
-                ct).ConfigureAwait(false);
+            try
+            {
+                await bus.DispatchAsync(
+                    outgoing.Message,
+                    outgoing.Message.GetType(),
+                    outgoing.Kind,
+                    outgoing.Options,
+                    envelope,
+                    ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.StartsWith("AvtoBus readonly", StringComparison.Ordinal))
+            {
+                BusTelemetry.RecordDecision(activity, "readonly-suppressed", ex.Message);
+                logger.LogWarning(ex, "Readonly: каскад {Type} подавлен", outgoing.Message.GetType().Name);
+            }
         }
 
         BusTelemetry.RecordDecision(activity, "ack", $"каскадов: {context.Outgoing.Count}");

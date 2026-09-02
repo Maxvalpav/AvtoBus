@@ -17,6 +17,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAvtoBus(this IServiceCollection services, Action<BusConfigurator> configure)
     {
         var options = new BusOptions();
+        // Аварийный readonly по файлу/переменной окружения (идея 497) — срабатывает до пользовательской конфигурации,
+        // но пользователь может переопределить через bus.UseReadOnly(false).
+        if (Environment.GetEnvironmentVariable("AVTOBUS_READONLY") == "1" ||
+            File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "avtobus", "readonly")))
+        {
+            options.IsReadOnly = true;
+            options.ReadOnlyReason = "flag ~/.config/avtobus/readonly or AVTOBUS_READONLY=1";
+        }
         var configurator = new BusConfigurator(services, options);
         configure(configurator);
 
@@ -41,6 +49,12 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAvtoBusClient(this IServiceCollection services, Action<BusConfigurator> configure)
     {
         var options = new BusOptions();
+        if (Environment.GetEnvironmentVariable("AVTOBUS_READONLY") == "1" ||
+            File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "avtobus", "readonly")))
+        {
+            options.IsReadOnly = true;
+            options.ReadOnlyReason = "flag ~/.config/avtobus/readonly or AVTOBUS_READONLY=1";
+        }
         var configurator = new BusConfigurator(services, options);
         configure(configurator);
 

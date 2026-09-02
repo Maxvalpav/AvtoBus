@@ -16,6 +16,7 @@ public static class Program
             CompletionCommand.Create(),
             DlqCommand.Create(),
             AsyncApiCommand.Create(),
+            ReadonlyCommand.Create(),
         };
 
         if (args.Length == 0)
@@ -44,6 +45,7 @@ public static class Program
         Console.WriteLine("  es explain    — объяснение Event Sourcing модели из контрактов");
         Console.WriteLine("  config        — управление конфигом ~/.config/avtobus");
         Console.WriteLine("  dlq           — просмотр dead-letter сообщений (in-memory/файл)");
+        Console.WriteLine("  readonly      — avtobus readonly on|off|status (идея 497)");
         Console.WriteLine("  completion    — генерация shell-автодополнения");
         Console.WriteLine("  asyncapi      — генерация AsyncAPI 3.0 из контрактов");
         Console.WriteLine();

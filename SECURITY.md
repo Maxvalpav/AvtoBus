@@ -54,16 +54,14 @@ AvtoBus ещё не достиг v1.0 и не используется в про
 | **Denial of Service** | Флуд входящими / буст исходящих | Poison без ретраев для невалидных; outbound rate limit (`OutboundRatePerSecond`) | Входящий rate limiting на транспорте; лимиты размера сообщений |
 | **Elevation of Privilege** | Обработка сообщения без прав | `[BusAuthorize]` + `AuthorizationMiddleware`; principal из подписанного `avtobus-user`; `UnauthorizedMessageException` → DLQ | Источник principal (IPrincipalExtractor/SSO) |
 
-Реализовано в 0.1.0 (прод):
+Реализовано в 0.1.0–0.1.1 (прод):
 - mTLS — `SecurityOptions.Tls` / `BusOptions.TlsOptions` пробрасывается транспортерам, `TlsOptions.RequireClientCertificate` (идея 452).
 - Allowlist типов — `BusConfigurator.UseAllowlist()` + `ITypeResolver`/`AllowlistResolver`, `MessageProcessor` → `Poison` без десериализации (идея 457, 451).
 - Multi-tenancy — `AvtoBus.Multitenancy` (уровни A/B/C, `TenantRateLimitMiddleware`, `RegionRouteGuard` с атрибутами `[Region]/[GeoReplicated]`) (461–467, 473).
 - Крипто-шреддинг — `AvtoBus.Security.CryptoShreddingService` (KMS `DeleteKeyAsync` + tombstone) + EventSourcing `SubjectDataProtection` per-subject AES-GCM (492–494); GDPR — `GdprSubjectIndexMigration` + `IGdprReportService` (287).
 - PII-маскирование — `PiiMasker` для `[PersonalData]` уже в DLQ/диагностике (456).
-
-Остаточные области (roadmap post-0.1):
-- Профили данных `DataProfile.Ru152Fz` / `DataProfile.Gdpr` (идея 498) — политика хранения per-field.
-- Аварийный режим «только чтение» `avtobus readonly on` (идея 497) — глобальный circuit breaker.
+- Профили данных — `BusConfigurator.UseDataProfile(DataProfile.Gdpr|Ru152Fz)` включает `PiiMaskingEnabled` по умолчанию (идея 498).
+- Аварийный режим — `BusConfigurator.UseReadOnly()` + `AvtoBusClient`/`MessageProcessor` блокировка исходящих, файл `~/.config/avtobus/readonly` и `AVTOBUS_READONLY=1`, CLI `avtobus readonly on|off|status` (идея 497).
 
 ## Безопасность в development
 

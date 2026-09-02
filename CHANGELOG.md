@@ -5,10 +5,13 @@
 
 ## [Unreleased]
 
-### Планируется
+## [0.1.1] - 2026-09-02 — DataProfile + readonly + helm
 
-- Профили данных `DataProfile.Ru152Fz` / `DataProfile.Gdpr` (идея 498).
-- Аварийный режим `avtobus readonly on` (идея 497).
+### Добавлено
+
+- `BusOptions.DataProfile` / `BusConfigurator.UseDataProfile(Gdpr|Ru152Fz)` — `PiiMaskingEnabled=true` по умолчанию (идея 498).
+- `BusOptions.IsReadOnly` / `UseReadOnly()` — блокировка исходящих в `AvtoBusClient` + подавление каскадов в `MessageProcessor`; файл `~/.config/avtobus/readonly` и `AVTOBUS_READONLY=1`, CLI `avtobus readonly on|off|status` (идея 497).
+- Helm-чарт `build/deploy/helm/*`, Prometheus alerts `build/deploy/prometheus/alerts.yaml`, runbook `build/deploy/RUNBOOK.md`.
 
 ## [0.1.0] - 2026-09-02 — продакшен-готовность
 

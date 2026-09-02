@@ -1,0 +1,10 @@
+apiVersion: v2
+name: avtobus-worker
+description: AvtoBus worker — EDA framework для ASP.NET Core (chiseled, KEDA, OTel)
+type: application
+version: 0.1.1
+appVersion: "0.1.0"
+keywords: [eda, messaging, rabbitmq, kafka, otel]
+maintainers:
+  - name: AvtoBus
+    url: https://github.com/avtobus/avtobus

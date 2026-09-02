@@ -1,0 +1,24 @@
+groups:
+  - name: avtobus
+    interval: 30s
+    rules:
+      - alert: AvtoBusConsumerLagHigh
+        expr: avtobus_consumer_lag > 10000
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Consumer lag >10k ({{ $labels.avtobus_destination_name }})" }
+      - alert: AvtoBusDlqGrowing
+        expr: increase(avtobus_dlq_size[5m]) > 0
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "DLQ растёт — poison/retries исчерпаны" }
+      - alert: AvtoBusQueueDepthHigh
+        expr: avtobus_queue_depth > 5000
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Глубина очереди >5k {{ $labels.avtobus_queue_name }}" }
+      - alert: AvtoBusOutboxStale
+        expr: avtobus_outbox_pending > 1000
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "Outbox pending >1k — relay не справляется" }

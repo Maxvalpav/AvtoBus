@@ -1,0 +1,29 @@
+{{- include "avtobus-worker.labels" . | nindent 0 }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+  labels: {{ include "avtobus-worker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{ include "avtobus-worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{ include "avtobus-worker.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1654, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - { name: AVTOBUS_TRANSPORT, value: "{{ .Values.transport }}" }
+            - { name: DOTNET_ENVIRONMENT, value: "{{ .Values.env.DOTNET_ENVIRONMENT }}" }
+          envFrom: [{ secretRef: { name: {{ .Values.secrets.name }} } }]
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+          livenessProbe: { httpGet: { path: {{ .Values.probes.liveness.path }}, port: {{ .Values.probes.liveness.port }} }, initialDelaySeconds: 15, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: {{ .Values.probes.readiness.path }}, port: {{ .Values.probes.readiness.port }} }, initialDelaySeconds: 5, periodSeconds: 5 }
+          startupProbe: { httpGet: { path: {{ .Values.probes.startup.path }}, port: {{ .Values.probes.startup.port }} }, initialDelaySeconds: 5, periodSeconds: 5, failureThreshold: 12 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
