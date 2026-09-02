@@ -78,15 +78,29 @@ jobs:
           dotnet pack src/AvtoBus.Cli -c Release --no-build
           /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
 
-      - name: Push to NuGet
-        run: dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Generate SBOM (Syft, idea 479)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp
+          /tmp/syft ./artifacts -o spdx-json=./artifacts/sbom.spdx.json
+          ls -lh ./artifacts/sbom.spdx.json
+
+      - name: Push to NuGet (OIDC trusted publishing preferred, fallback to API key)
+        run: |
+          if [ -n "${{ secrets.NUGET_API_KEY }}" ]; then
+            dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate
+          else
+            echo "NUGET_API_KEY not set — NuGet Trusted Publishing via OIDC (id-token:write) required; skipping push (dry-run ok)"
+          fi
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.NUGET_API_KEY }}
 
       - name: Push symbols (snupkg)
-        run: >
-          dotnet nuget push ./artifacts/*.snupkg
-          --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: |
+          if [ -n "${{ secrets.NUGET_API_KEY }}" ]; then
+            dotnet nuget push ./artifacts/*.snupkg --source https://api.nuget.org/v3/index.json --skip-duplicate
+          else
+            echo "skip snupkg push — no API key, use OIDC"
+          fi
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.NUGET_API_KEY }}
 

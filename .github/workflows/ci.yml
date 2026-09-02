@@ -103,14 +103,27 @@ jobs:
             src/AvtoBus.Workflow \
             src/AvtoBus.Serialization.MessagePack \
             src/AvtoBus.Serialization.Protobuf \
-            src/AvtoBus ; do
+            src/AvtoBus \
+            src/AvtoBus.Cli ; do
             dotnet pack "$proj" -c Release --no-build --no-restore \
               /p:Version=0.1.0-verify -o ./artifacts-verify
           done
           count=$(ls ./artifacts-verify/*.nupkg | wc -l)
-          echo "Packed $count packages"
-          test "$count" -eq 31
-          # отдельный пакет CLI проверяется вне этого цикла (job release пакует его отдельно)
+          echo "Packed $count packages (31 libs + 1 cli = 32)"
+          test "$count" -eq 32
+
+      - name: SBOM (Syft, idea 479)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp
+          /tmp/syft ./artifacts-verify -o spdx-json=./artifacts-verify/sbom.spdx.json
+          ls -lh ./artifacts-verify/sbom.spdx.json
+
+      - name: Upload nupkgs + SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs-verify
+          path: ./artifacts-verify/*
+          retention-days: 7
 
       - name: Upload test results
         if: always()

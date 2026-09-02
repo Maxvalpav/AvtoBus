@@ -1,9 +1,16 @@
 # Changelog
 
-Все заметные изменения AvtoBus. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
+Все заметные изменения AvtoBus. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0),
 версионирование — [SemVer](https://semver.org/lang/ru/).
 
 ## [Unreleased]
+
+### Планируется
+
+- Профили данных `DataProfile.Ru152Fz` / `DataProfile.Gdpr` (идея 498).
+- Аварийный режим `avtobus readonly on` (идея 497).
+
+## [0.1.0] - 2026-09-02 — продакшен-готовность
 
 ### Добавлено
 
@@ -180,12 +187,21 @@
   - Ack = CompleteMessage; Reject(requeue) = AbandonMessage (брокер инкрементит DeliveryCount); Reject(без requeue) = DeadLetter.
   - Conformance-сьют `AsbTransportConformanceTests` — прогон через `AVTOBUS_ASB_CONNECTION` в CI.
 
-### Исправлено
+ ### Исправлено
 
 - Флаки-тест `PipelineStepMetricTests`: ожидание конкретного шага вместо «любой сэмпл»
   (статический инструмент видит обработки параллельных харнессов).
 
-## [0.1.0] - 2026-08-14
+ ### Прод-харднинг 2026-09-02 (коммит 896c535)
+
+- **Allowlist + ITypeResolver**: `BusConfigurator.UseAllowlist()` → `MessageProcessor` fail-closed `Poison` без десериализации; `MessageRegistry : ITypeResolver`, `AllowlistResolver` в `AvtoBus.Security`.
+- **ConsumerHost**: гарантированный settlement при падении `MessageProcessor` (fallback `Poison` → `Reject`), `volatile IsPaused`, `DrainAsync` без утечки семафора, `PartitionRouter` с `FNV-1a` stable hash + `Shutdown CTS`.
+- **Envelope context**: `InitiatorContext`/`TenantContext` → стек `AsyncLocal<Stack>` (вложенные скоупы без потери).
+- **BusConfigurator**: `TrySetDefaultTransport` (первый транспорт остаётся дефолтом), идемпотентные `UseCompression`/`UseClaimCheck`, `AllowedMessageTypes`/`TlsOptions`.
+- **EnvelopeSecurity**: `ProtectOutboundAsync` + `RateLimiter` с jitter 0–30 ms (thundering herd).
+- **Инфра**: `Dockerfile.chiseled` → `avtobus` (`AssemblyName=avtobus`), `docker-compose.dev` пины образов + `healthcheck` + NATS, `CI` concurrency + `postgres:17`/`kafka:3.8.0`, pack 31 lib + CLI (32 пакета).
+
+## [0.1.0] - 2026-08-14 — ядро
 
 Первоначальная реализация ядра: конверт, пайплайн, recoverability, транспорт InMemory,
 outbox на EF Core, саги, source generator, тест-харнесс.

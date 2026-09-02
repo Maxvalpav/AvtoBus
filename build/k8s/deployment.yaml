@@ -1,0 +1,89 @@
+# Deployment для воркера AvtoBus (идея 470, 468)
+# Прод-шаблон: non-root, ресурсы, пробы, secrets через envFrom.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: avtobus-worker
+  labels:
+    app: avtobus-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: avtobus-worker
+  template:
+    metadata:
+      labels:
+        app: avtobus-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/avtobus/avtobus-worker:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: DOTNET_ENVIRONMENT
+              value: Production
+            # Транспорт — через secrets (не хардкод в манифесте)
+            - name: AVTOBUS_TRANSPORT
+              value: rabbitmq
+          envFrom:
+            - secretRef:
+                name: avtobus-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          # Пробы (идея 468): /healthz liveness, /readyz readiness, /startupz startup
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: avtobus-worker
+  labels:
+    app: avtobus-worker
+spec:
+  selector:
+    app: avtobus-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: ClusterIP

@@ -21,4 +21,5 @@ USER 1654
 
 # Пробы: /healthz (liveness), /readyz (readiness), /startupz (идея 468).
 EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD ["/app/avtobus", "doctor", "--check", "health"] || exit 1
 ENTRYPOINT ["dotnet", "avtobus.dll"]
