@@ -23,17 +23,17 @@ public class SecurityDecisionsTests
         Headers = new Dictionary<string, string>(),
     };
 
-    private static EnvelopeSecurity Security(Action<SecurityOptions> configure)
+    private static EnvelopeSecurity Security(Action<SecurityOptions> configure, TimeProvider? time = null)
     {
         var options = new SecurityOptions();
         configure(options);
-        return new EnvelopeSecurity(options);
+        return new EnvelopeSecurity(options, time);
     }
 
     [Fact]
     public void V2_signature_covers_routing_fields()
     {
-        var security = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; });
+        var security = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; o.SignatureVersion = 2; });
         var signed = security.ProtectOutbound(NewEnvelope() with { ReplyTo = "reply-q", PartitionKey = "pk", Priority = 7 }, "svc");
 
         Assert.Equal("2", signed.Header("avtobus-sig-version"));
@@ -43,6 +43,47 @@ public class SecurityDecisionsTests
         Assert.Throws<SecurityViolationException>(() => security.OpenInbound(signed with { ReplyTo = "evil-q" }));
         Assert.Throws<SecurityViolationException>(() => security.OpenInbound(signed with { PartitionKey = "evil" }));
         Assert.Throws<SecurityViolationException>(() => security.OpenInbound(signed with { Priority = 1 }));
+    }
+
+    [Fact]
+    public void V3_is_default_and_carries_signed_timestamp()
+    {
+        var security = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; });
+        var signed = security.ProtectOutbound(NewEnvelope(), "svc");
+
+        Assert.Equal("3", signed.Header("avtobus-sig-version"));
+        Assert.NotNull(signed.Header("avtobus-signed-at"));
+        Assert.NotNull(security.OpenInbound(signed));
+    }
+
+    [Fact]
+    public void V3_replay_after_window_is_rejected()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var security = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; }, time);
+        var signed = security.ProtectOutbound(NewEnvelope(), "svc");
+
+        // Свежий конверт проходит, в том числе повторно (at-least-once ределивери — не атака).
+        Assert.NotNull(security.OpenInbound(signed));
+        Assert.NotNull(security.OpenInbound(signed));
+
+        // Тот же байтовый конверт через 10 минут — переигрывание, отказ.
+        time.Advance(TimeSpan.FromMinutes(10));
+        Assert.Throws<SecurityViolationException>(() => security.OpenInbound(signed));
+    }
+
+    [Fact]
+    public void V3_future_timestamp_beyond_skew_is_rejected()
+    {
+        var signTime = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var sender = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; }, signTime);
+        var signed = sender.ProtectOutbound(NewEnvelope(), "svc");
+
+        // Получатель с часами сильно позади: метка в будущем beyond skew — отказ.
+        var receiver = Security(
+            o => { o.MasterSecret = "s2"; o.RequireSignature = true; },
+            new FakeTimeProvider(new DateTimeOffset(2025, 12, 31, 0, 0, 0, TimeSpan.Zero)));
+        Assert.Throws<SecurityViolationException>(() => receiver.OpenInbound(signed));
     }
 
     [Fact]

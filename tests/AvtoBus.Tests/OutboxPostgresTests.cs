@@ -361,6 +361,81 @@ public sealed class OutboxPostgresTests
     }
 
     [Fact]
+    public async Task Partition_lease_serializes_one_key_across_two_relays()
+    {
+        var cs = await RequirePgAsync();
+        await using (var db = new TestOutboxContext(Options(cs)))
+            await db.Database.EnsureCreatedAsync();
+
+        const string key = "orders-42";
+        const int count = 50;
+        var envelopes = Enumerable.Range(0, count)
+            .Select(_ => NewEnvelope() with { PartitionKey = key })
+            .ToArray();
+        await EnqueueAsync(cs, new OutboxRoute("orders", null), envelopes);
+        var position = envelopes
+            .Select((e, i) => (e.MessageId, i))
+            .ToDictionary(x => x.MessageId, x => x.i);
+
+        var transport = new RecordingTransport();
+        var options = new OutboxOptions { PollInterval = TimeSpan.FromMilliseconds(50), BatchSize = 5 };
+
+        await using var providerA = BuildRelayServices(cs, transport, options);
+        await using var providerB = BuildRelayServices(cs, transport, options);
+        var relayA = providerA.GetRequiredService<OutboxRelay>();
+        var relayB = providerB.GetRequiredService<OutboxRelay>();
+
+        await relayA.StartAsync(CancellationToken.None);
+        await relayB.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.True(
+                await WaitUntilAsync(() => transport.Count >= count, TimeSpan.FromSeconds(30)),
+                "Два relay не доставили все сообщения ключа за отведённое время.");
+        }
+        finally
+        {
+            await relayA.StopAsync(CancellationToken.None);
+            await relayB.StopAsync(CancellationToken.None);
+        }
+
+        var ids = transport.MessageIds;
+        Assert.Equal(count, ids.Length);
+        Assert.Equal(count, ids.Distinct().Count());
+
+        // Порядок внутри ключа монотонный: позиция отправки растёт с позицией постановки.
+        var positions = ids.Select(id => position[id]).ToArray();
+        Assert.Equal(positions.OrderBy(p => p), positions);
+    }
+
+    [Fact]
+    public async Task Partition_lease_acquire_takeover_and_release()
+    {
+        var cs = await RequirePgAsync();
+        await using var db = new TestOutboxContext(Options(cs));
+        await db.Database.EnsureCreatedAsync();
+
+        var now = DateTime.UtcNow;
+        const string key = "lease-key";
+
+        // Первый владелец берёт свободную лизу.
+        Assert.True(await OutboxRelay.TryAcquirePartitionLeaseAsync(
+            db, key, "relay-a", now, TimeSpan.FromMinutes(5), CancellationToken.None));
+
+        // Второй инстанс при живой лизе проигрывает.
+        Assert.False(await OutboxRelay.TryAcquirePartitionLeaseAsync(
+            db, key, "relay-b", now, TimeSpan.FromMinutes(5), CancellationToken.None));
+
+        // Тот же владелец продлевает без сбоя.
+        Assert.True(await OutboxRelay.TryAcquirePartitionLeaseAsync(
+            db, key, "relay-a", now, TimeSpan.FromMinutes(5), CancellationToken.None));
+
+        // После истечения TTL другой инстанс перехватывает (упавший relay не клинит ключ).
+        Assert.True(await OutboxRelay.TryAcquirePartitionLeaseAsync(
+            db, key, "relay-b", now + TimeSpan.FromMinutes(6), TimeSpan.FromMinutes(5), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Inbox_dedup_suppresses_duplicate_delivery_on_postgres()
     {
         var cs = await RequirePgAsync();

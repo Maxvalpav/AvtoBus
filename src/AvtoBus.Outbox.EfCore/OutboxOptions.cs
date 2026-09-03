@@ -10,6 +10,13 @@ public sealed class OutboxOptions
     public TimeSpan StaleClaim { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
+    /// TTL партиционной лизы (аудит A1): сколько relay владеет PartitionKey без продления.
+    /// Должен заведомо превышать время отправки+маркировки одной группы ключа, иначе
+    /// другой инстанс перехватит ключ раньше (дубли поймает inbox-дедуп, порядок — head-of-line).
+    /// </summary>
+    public TimeSpan PartitionLeaseTtl { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// После стольких неудачных попыток неотправленное сообщение считается poison
     /// и удаляется чисткой (иначе таблица растёт монотонно на вечно падающих).
     /// </summary>
@@ -29,6 +36,8 @@ public sealed class OutboxOptions
             throw new ArgumentOutOfRangeException(nameof(PollInterval), "Outbox PollInterval должен быть > 0.");
         if (StaleClaim <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(StaleClaim), "Outbox StaleClaim должен быть > 0.");
+        if (PartitionLeaseTtl <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(PartitionLeaseTtl), "Outbox PartitionLeaseTtl должен быть > 0.");
         if (CleanupAfter <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(CleanupAfter), "Outbox CleanupAfter должен быть > 0.");
     }

@@ -41,7 +41,9 @@ public static class SecurityServiceCollectionExtensions
         }
 
         services.AddSingleton(options);
-        services.AddSingleton(sp => new EnvelopeSecurity(sp.GetRequiredService<SecurityOptions>()));
+        services.AddSingleton(sp => new EnvelopeSecurity(
+            sp.GetRequiredService<SecurityOptions>(),
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IEnvelopeSecurity>(sp => sp.GetRequiredService<EnvelopeSecurity>());
         // Fail-closed principal: раз безопасность подключена — неподписанному
         // avtobus-user больше не доверяем (заменяет HeaderPrincipalExtractor ядра).

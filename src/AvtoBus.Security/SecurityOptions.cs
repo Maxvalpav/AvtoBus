@@ -10,12 +10,21 @@ public sealed class SecurityOptions
     /// <summary>Обязательная проверка подписи для входящих сообщений.</summary>
     public bool RequireSignature { get; set; }
 
-    /// <summary>Версия схемы подписи исходящих сообщений: 2 (по умолчанию, покрывает маршрутизацию:
-    /// ReplyTo/PartitionKey/Priority/DeliverAt/TTL/TraceParent/CausationId) или 1 (legacy,
-    /// только для поэтапного rollout в смешанном парке — старые сервисы не проверяют v2).
-    /// Входящие проверяются по своей версии всегда (v1 без заголовка версии).
+    /// <summary>Версия схемы подписи исходящих сообщений: 3 (по умолчанию, v2 +
+    /// подписанная метка времени anti-replay), 2 (без времени) или 1 (legacy для rollout).
+    /// Входящие проверяются по своей версии, но не ниже <see cref="MinimumSignatureVersion"/>.
     /// </summary>
-    public int SignatureVersion { get; set; } = 2;
+    public int SignatureVersion { get; set; } = 3;
+
+    /// <summary>
+    /// Максимальный возраст v3-подписи (аудит B1): конверт старше окна отклоняется как
+    /// переигрывание. 5 минут по умолчанию — достаточно для очередей, мало для replay-атаки.
+    /// Внутри окна от дублей защищает inbox-дедуп / идемпотентный хендлер.
+    /// </summary>
+    public TimeSpan MaxSignatureAge { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Допуск на рассинхронизацию часов при проверке v3-метки (в будущее).</summary>
+    public TimeSpan MaxClockSkew { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Минимальная принимаемая версия подписи входящих (аудит B2): v1 не покрывает
@@ -34,7 +43,10 @@ public sealed class SecurityOptions
     /// </summary>
     public string MasterSecret { get; set; } = "";
 
-    /// <summary>Rfc2898 итераций KDF — настраивается для тестов (медленно при больших).</summary>
+    /// <summary>
+    /// Итерации PBKDF2 для человеческих passphrase через <c>SecurityKeys.FromSecret</c>.
+    /// Деривация поколений KeyRing идёт через HKDF и это поле не использует (аудит B3).
+    /// </summary>
     public int KdfIterations { get; set; } = 100_000;
 
     /// <summary>Имя service identity, которым подпишет исходящие сообщения этот сервис.</summary>

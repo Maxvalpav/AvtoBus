@@ -14,16 +14,21 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
     private readonly SecurityOptions _options;
     private readonly KeyRing _keys;
     private readonly RateLimiter _outbound;
+    private readonly TimeProvider _time;
 
-    public EnvelopeSecurity(SecurityOptions options)
+    public EnvelopeSecurity(SecurityOptions options, TimeProvider? time = null)
     {
         _options = options;
         _keys = new KeyRing(options);
         _outbound = new RateLimiter(options.OutboundRatePerSecond);
+        _time = time ?? TimeProvider.System;
         IsEnabled = options.RequireSignature || options.EncryptBody || options.OutboundRatePerSecond > 0;
     }
 
     public bool IsEnabled { get; }
+
+    /// <summary>Текущая эпоха ключей — для диагностики рассинхронизации часов (аудит B4).</summary>
+    public long CurrentKeyEpoch => _keys.OptionsEpoch;
 
     /// <summary>
     /// Проверяет подпись входящего конверта всеми поколениями ключей, не расшифровывая тело.
@@ -87,18 +92,24 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
     /// <summary>
     /// Ставит свежую подпись схемой из <see cref="SecurityOptions.SignatureVersion"/>
-    /// (v2 по умолчанию). Отдельно от <c>ProtectCore</c> — переиспользуется после
+    /// (v3 по умолчанию). Отдельно от <c>ProtectCore</c> — переиспользуется после
     /// расшифровки (см. <c>OpenInbound</c>).
     /// </summary>
     internal Envelope StampSignature(Envelope envelope, SecurityKeys keys, string? serviceIdentity)
     {
-        var version = _options.SignatureVersion >= EnvelopeSigner.V2 ? EnvelopeSigner.V2 : EnvelopeSigner.V1;
-        var signature = EnvelopeSigner.ComputeSignature(envelope, keys.SigningKey, version);
-        var stamped = envelope
+        var version = _options.SignatureVersion >= EnvelopeSigner.V3 ? EnvelopeSigner.V3
+            : _options.SignatureVersion >= EnvelopeSigner.V2 ? EnvelopeSigner.V2 : EnvelopeSigner.V1;
+        var stamped = envelope;
+        if (version >= EnvelopeSigner.V3)
+            stamped = stamped.WithHeader(
+                EnvelopeSigner.SignedAtHeader,
+                _time.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var signature = EnvelopeSigner.ComputeSignature(stamped, keys.SigningKey, version);
+        stamped = stamped
             .WithHeader(EnvelopeSigner.SignatureHeader, signature)
             .WithHeader(EnvelopeSigner.SignedByHeader, serviceIdentity ?? _options.SigningIdentity);
         if (version >= EnvelopeSigner.V2)
-            stamped = stamped.WithHeader(EnvelopeSigner.SignatureVersionHeader, "2");
+            stamped = stamped.WithHeader(EnvelopeSigner.SignatureVersionHeader, version.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return stamped;
     }
 
@@ -120,6 +131,14 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
             if (!ok)
                 throw new SecurityViolationException("Неверная подпись конверта");
+
+            // Anti-replay (аудит B1): v3 несёт подписанную метку времени.
+            // Старше окна — переигрывание, в будущее beyond skew — чужие часы / pre-play.
+            // Строгий nonce-reject здесь невозможен: он убивал бы легитимные
+            // at-least-once ретраи (тот же MessageId). Внутри окна от дублей
+            // защищает inbox-дедуп / идемпотентный хендлер.
+            if (envelope.Header(EnvelopeSigner.SignatureVersionHeader) == "3")
+                CheckSignatureAge(envelope);
         }
 
         if (_options.EncryptBody && BodyEncryptor.IsEncrypted(envelope))
@@ -167,7 +186,24 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
             return true;
         // Версия читается из неподписанного заголовка, но здесь это fail-closed:
         // отсутствие/«1» при минимуме 2 — отказ, а не downgrade проверки (аудит B2).
-        return envelope.Header(EnvelopeSigner.SignatureVersionHeader) == "2";
+        return envelope.Header(EnvelopeSigner.SignatureVersionHeader) is "2" or "3";
+    }
+
+    private void CheckSignatureAge(Envelope envelope)
+    {
+        var raw = envelope.Header(EnvelopeSigner.SignedAtHeader);
+        if (!long.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var unixSeconds))
+            throw new SecurityViolationException("v3-подпись без валидной метки времени");
+
+        var now = _time.GetUtcNow().ToUnixTimeSeconds();
+        var age = now - unixSeconds;
+        if (age > (long)_options.MaxSignatureAge.TotalSeconds)
+            throw new SecurityViolationException(
+                $"Подпись просрочена: возраст {age}с при окне {(long)_options.MaxSignatureAge.TotalSeconds}с (replay?)");
+        if (-age > (long)_options.MaxClockSkew.TotalSeconds)
+            throw new SecurityViolationException(
+                $"Метка подписи в будущем beyond skew: {(-age)}с при допуске {(long)_options.MaxClockSkew.TotalSeconds}с");
     }
 }
 

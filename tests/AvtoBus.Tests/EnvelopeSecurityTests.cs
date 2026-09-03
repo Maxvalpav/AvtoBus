@@ -153,6 +153,37 @@ public class EnvelopeSecurityTests
     }
 
     [Fact]
+    public void Signature_from_next_epoch_verifies_within_tolerance()
+    {
+        // Аудит B4: отправитель с часами вперёд подписывает следующим поколением —
+        // получатель принимает его без обновления своих часов.
+        var sender = Security(o =>
+        {
+            o.MasterSecret = "skew-secret";
+            o.RequireSignature = true;
+            o.KeyRotationInterval = TimeSpan.FromHours(1);
+        });
+        var receiver = Security(o =>
+        {
+            o.MasterSecret = "skew-secret";
+            o.RequireSignature = true;
+            o.KeyRotationInterval = TimeSpan.FromHours(1);
+        });
+
+        var initial = sender.CurrentKeyEpoch;
+        var t = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 120 && sender.CurrentKeyEpoch == initial; i++)
+        {
+            t += TimeSpan.FromMinutes(1);
+            sender.RotateKeysIfDue(t);
+        }
+        Assert.True(sender.CurrentKeyEpoch == initial + 1, "отправитель должен уйти ровно на эпоху вперёд");
+
+        var signed = sender.ProtectOutbound(NewEnvelope(), "svc");
+        Assert.NotNull(receiver.OpenInbound(signed));
+    }
+
+    [Fact]
     public void Outbound_rate_limit_blocks_burst_and_releases_after_a_slice()
     {
         var security = Security(o =>

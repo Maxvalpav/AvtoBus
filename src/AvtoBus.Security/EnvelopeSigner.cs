@@ -26,16 +26,25 @@ internal static class EnvelopeSigner
     /// <summary>Версия схемы подписи. v1 покрывала только базу; v2 — и маршрутизацию.</summary>
     public const string SignatureVersionHeader = "avtobus-sig-version";
 
+    /// <summary>
+    /// Метка времени подписи (unix-секунды UTC). Подписывается схемой v3 и проверяется
+    /// окном валидности — граница переигрывания (anti-replay, аудит B1).
+    /// </summary>
+    public const string SignedAtHeader = "avtobus-signed-at";
+
     public const int V1 = 1;
     public const int V2 = 2;
+    public const int V3 = 3;
 
-    public static string ComputeSignature(Envelope envelope, ReadOnlySpan<byte> key, int version = V2)
+    public static string ComputeSignature(Envelope envelope, ReadOnlySpan<byte> key, int version = V3)
     {
         ValidateKeyLength(key);
         // IncrementalHash копирует ключ внутрь: ToArray-копии в управляемой куче больше нет,
         // ArrayPool и stackalloc->heap ToArray на каждое поле — тоже (AppendData ест спан напрямую).
         using var hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, key);
-        if (version >= V2)
+        if (version >= V3)
+            AddV3Fields(hmac, envelope);
+        else if (version >= V2)
             AddV2Fields(hmac, envelope);
         else
             AddV1Fields(hmac, envelope);
@@ -72,6 +81,13 @@ internal static class EnvelopeSigner
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.TraceParent ?? ""));
     }
 
+    private static void AddV3Fields(IncrementalHash hmac, Envelope envelope)
+    {
+        AddV2Fields(hmac, envelope);
+        // Метка времени — часть подписи: сдвиг signed-at без переподписи ломает проверку.
+        AddField(hmac, Encoding.UTF8.GetBytes(envelope.Header(SignedAtHeader) ?? ""));
+    }
+
     private static void ValidateKeyLength(ReadOnlySpan<byte> key)
     {
         if (key.Length != 32)
@@ -82,7 +98,12 @@ internal static class EnvelopeSigner
     {
         // Версия читается из заголовка: v2-сообщение без заголовка (заголовок стёрт)
         // упадёт на v1-проверке — подмена версии не даёт пройти проверку.
-        var version = envelope.Header(SignatureVersionHeader) == "2" ? V2 : V1;
+        var version = envelope.Header(SignatureVersionHeader) switch
+        {
+            "3" => V3,
+            "2" => V2,
+            _ => V1,
+        };
         string expected;
         try
         {

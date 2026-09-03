@@ -21,6 +21,7 @@ public static class OutboxRegistration
         opt.Validate();
 
         bus.Services.AddSingleton(opt);
+        bus.Services.TryAddSingleton(TimeProvider.System);
         bus.Services.AddSingleton<IOutboxSignal, ChannelOutboxSignal>();
         bus.Services.AddSingleton<OutboxSaveChangesInterceptor>();
         bus.Services.AddSingleton<IEnvelopeSerializer, JsonEnvelopeSerializer>();
@@ -40,6 +41,7 @@ public static class OutboxRegistration
         // B12: схема outbox/inbox + таблица версий
         bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigration>();
         bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigrationV2>();
+        bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigrationV3>();
         bus.Services.AddScoped<AvtoBus.Migrations.ISchemaExecutor>(sp => new AvtoBus.Outbox.EfCore.EfSchemaExecutor<TDb>(sp.GetRequiredService<TDb>()));
         bus.Services.AddHostedService<AvtoBus.Migrations.SchemaMigrator>();
         return bus;

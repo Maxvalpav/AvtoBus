@@ -53,7 +53,7 @@ public sealed class KeyRing
         if (epoch == OptionsEpoch)
             return;
 
-        // Derive ДОРОГОЙ (PBKDF2): только внутри лока после повторной проверки,
+        // Derive дешёвый (HKDF), но делаем его внутри лока после повторной проверки,
         // иначе N конкурентных потоков считают одно и то же зря.
         lock (_gate)
         {
@@ -114,6 +114,26 @@ public sealed class KeyRing
             }
         }
 
+        // Допуск на одну эпоху вперёд (аудит B4): отправитель с часами вперёд уже
+        // подписывает следующим поколением. Деривация HKDF — микросекунды, только на
+        // пути отказа; поколение не кэшируем, чтобы далеко ушедшие часы не раздували словарь.
+        if (_options.KeyRotationInterval is not null)
+        {
+            var future = Derive(_options, OptionsEpoch + 1);
+            try
+            {
+                if (verify(envelope, future.SigningKey))
+                {
+                    verifiedByEpoch = OptionsEpoch + 1;
+                    return true;
+                }
+            }
+            finally
+            {
+                future.Clear();
+            }
+        }
+
         verifiedByEpoch = -1;
         return false;
     }
@@ -135,15 +155,19 @@ public sealed class KeyRing
 
     private static SecurityKeys Derive(SecurityOptions options, long epoch)
     {
+        // HKDF-SHA256 из мастер-секрета (аудит B3): MasterSecret — уже сильный случайный
+        // ключ из Key Vault/K8s secrets, растяжение PBKDF2 ему не нужно, только дешёвая
+        // деривация с привязкой к эпохе и назначению. PBKDF2 остаётся для человеческих
+        // passphrase через SecurityKeys.FromSecret (там растяжение осознанно).
         // Эпоха входит в соль: смена ключа по расписанию даёт другой ключ.
-        var salt = $"epoch:{epoch}";
-        var secret = options.MasterSecret;
-        byte[] Derive(string component) => Rfc2898DeriveBytes.Pbkdf2(
-            secret,
-            System.Text.Encoding.UTF8.GetBytes(salt + component),
-            options.KdfIterations,
+        var salt = System.Text.Encoding.UTF8.GetBytes($"avtobus-key-epoch:{epoch}");
+        var ikm = System.Text.Encoding.UTF8.GetBytes(options.MasterSecret);
+        byte[] Derive(string component) => System.Security.Cryptography.HKDF.DeriveKey(
             HashAlgorithmName.SHA256,
-            32);
+            ikm,
+            32,
+            salt,
+            System.Text.Encoding.UTF8.GetBytes($"avtobus/{component}"));
 
         return new SecurityKeys
         {

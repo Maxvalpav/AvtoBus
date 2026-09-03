@@ -20,7 +20,9 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
     private readonly OutboxOptions _opt;
     private readonly ILogger<OutboxRelay> _log;
     private readonly TimeProvider _time;
-    private readonly string _claimBy = $"{Environment.MachineName}/{Environment.ProcessId}";
+    // Владелец лиз уникален на инстанс relay, а не на процесс (аудит A1): два relay
+    // в одном процессе (тесты, хосты) иначе никогда не исключают друг друга.
+    private readonly string _claimBy = $"{Environment.MachineName}/{Environment.ProcessId}/{Guid.NewGuid():N}";
     private long _pending;
 
     public OutboxRelay(
@@ -89,6 +91,12 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
 
     private async Task<int> PumpAsync(CancellationToken ct)
     {
+        // Порядок фаз строгий (аудит A1): peek ключей → захват лиз → claim ТОЛЬКО
+        // своих ключей и бесключевых строк. Кто не владеет ключом — тот его строк
+        // даже не клеймит, поэтому обогнать владельца (skip-ahead) невозможно,
+        // и снимать чужой claim не нужно.
+        var ownedKeys = await AcquirePartitionLeasesAsync(ct).ConfigureAwait(false);
+
         List<OutboxMessage> claimed;
         // Claim-скоуп живёт только на время claim+commit: DbContext/транзакция
         // не держатся через сетевые SendAsync (иначе пул соединений умирает на медленном брокере).
@@ -103,17 +111,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
             // Время — через TimeProvider (аудит G1): DateTime.UtcNow ломал StaleClaim при рассинхроне часов.
             var now = _time.GetUtcNow().UtcDateTime;
             var staleBefore = now - _opt.StaleClaim;
-            claimed = await db.Set<OutboxMessage>()
-                .FromSqlInterpolated($"""
-                    SELECT * FROM avtobus_outbox
-                    WHERE "SentAt" IS NULL
-                      AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= {staleBefore})
-                      AND ("SendAfter" IS NULL OR "SendAfter" <= {now})
-                    ORDER BY "Id"
-                    LIMIT {_opt.BatchSize}
-                    FOR UPDATE SKIP LOCKED
-                    """)
-                .ToListAsync(ct).ConfigureAwait(false);
+            claimed = await ClaimAsync(db, ownedKeys, _opt.BatchSize, now, staleBefore, ct).ConfigureAwait(false);
 
             if (claimed.Count == 0)
             {
@@ -133,71 +131,220 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
             await tx.CommitAsync(ct).ConfigureAwait(false);
         }
 
+        var groups = claimed.GroupBy(m => m.PartitionKey).ToList();
+
         var sent = new List<long>(claimed.Count);
         var failed = new List<(long Id, string Error)>();
 
-        await Parallel.ForEachAsync(
-            claimed.GroupBy(m => m.PartitionKey ?? m.MessageId.ToString()),
-            new ParallelOptions { MaxDegreeOfParallelism = _opt.Parallelism, CancellationToken = ct },
-            async (group, token) =>
-            {
-                // Head-of-line внутри ключа (аудит 1.2): упало одно сообщение ключа —
-                // остаток группы не отправляем, иначе порядок per key нарушается.
-                foreach (var m in group)
+        try
+        {
+            await Parallel.ForEachAsync(
+                groups,
+                new ParallelOptions { MaxDegreeOfParallelism = _opt.Parallelism, CancellationToken = ct },
+                async (group, token) =>
                 {
-                    try
+                    // Head-of-line внутри ключа (аудит 1.2): упало одно сообщение ключа —
+                    // остаток группы не отправляем, иначе порядок per key нарушается.
+                    foreach (var m in group)
                     {
-                        var env = _ser.Deserialize(m.EnvelopeBlob);
-                        var transport = _transports.Get(m.Transport.Length == 0 ? null : m.Transport);
-                        // Вид назначения хранится в строке: топик идёт в fan-out,
-                        // а не в одноимённую очередь (иначе подписчики ничего не получали).
-                        var destination = m.Kind == (int)DestinationKind.Topic
-                            ? TransportDestination.Topic(m.Destination)
-                            : TransportDestination.Queue(m.Destination);
-                        await transport.SendAsync(env, destination, token).ConfigureAwait(false);
-                        lock (sent) sent.Add(m.Id);
+                        try
+                        {
+                            var env = _ser.Deserialize(m.EnvelopeBlob);
+                            var transport = _transports.Get(m.Transport.Length == 0 ? null : m.Transport);
+                            // Вид назначения хранится в строке: топик идёт в fan-out,
+                            // а не в одноимённую очередь (иначе подписчики ничего не получали).
+                            var destination = m.Kind == (int)DestinationKind.Topic
+                                ? TransportDestination.Topic(m.Destination)
+                                : TransportDestination.Queue(m.Destination);
+                            await transport.SendAsync(env, destination, token).ConfigureAwait(false);
+                            lock (sent) sent.Add(m.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "Outbox-отправка не удалась для {MessageId}", m.MessageId);
+                            lock (failed) failed.Add((m.Id, ex.Message));
+                            break;
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        _log.LogWarning(ex, "Outbox-отправка не удалась для {MessageId}", m.MessageId);
-                        lock (failed) failed.Add((m.Id, ex.Message));
-                        break;
-                    }
-                }
-            });
+                });
 
-        if (sent.Count > 0 || failed.Count > 0)
-        {
-            Interlocked.Add(ref _pending, -(sent.Count + failed.Count));
+            if (sent.Count > 0 || failed.Count > 0)
+            {
+                Interlocked.Add(ref _pending, -(sent.Count + failed.Count));
 
-            await using var markScope = _scopes.CreateAsyncScope();
-            var markDb = markScope.ServiceProvider.GetRequiredService<DbContext>();
-            var markedAt = _time.GetUtcNow().UtcDateTime;
+                await using var markScope = _scopes.CreateAsyncScope();
+                var markDb = markScope.ServiceProvider.GetRequiredService<DbContext>();
+                var markedAt = _time.GetUtcNow().UtcDateTime;
 
-            // Маркировка — идемпотентная фиксация уже отправленного факта: завершаем её даже при
-            // остановке, иначе сообщение «отправлено, но SentAt не проставлен» вернётся дублем.
-            await markDb.Set<OutboxMessage>()
-                .Where(o => sent.Contains(o.Id))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(o => o.SentAt, markedAt)
-                    .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
-                .ConfigureAwait(false);
+                // Маркировка — идемпотентная фиксация уже отправленного факта: завершаем её даже при
+                // остановке, иначе сообщение «отправлено, но SentAt не проставлен» вернётся дублем.
+                await markDb.Set<OutboxMessage>()
+                    .Where(o => sent.Contains(o.Id))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.SentAt, markedAt)
+                        .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+
+            if (failed.Count > 0)
+            {
+                // Индексер словаря failedMap[o.Id] НЕ транслируется EF в SQL (проверено на PG:
+                // InvalidOperationException при первой же неудаче — pump вставал навсегда).
+                // Поэтому один raw UPDATE с CASE: задержки считаем на клиенте (cap+jitter).
+                var failedIds = new HashSet<long>(failed.Select(f => f.Id));
+                var attempts = claimed.Where(m => failedIds.Contains(m.Id))
+                    .ToDictionary(m => m.Id, m => m.Attempt);
+                await using var failScope = _scopes.CreateAsyncScope();
+                var failDb = failScope.ServiceProvider.GetRequiredService<DbContext>();
+                await MarkFailedAsync(failDb, failed, attempts, CancellationToken.None, _time).ConfigureAwait(false);
+            }
         }
-
-        if (failed.Count > 0)
+        finally
         {
-            // Индексер словаря failedMap[o.Id] НЕ транслируется EF в SQL (проверено на PG:
-            // InvalidOperationException при первой же неудаче — pump вставал навсегда).
-            // Поэтому один raw UPDATE с CASE: задержки считаем на клиенте (cap+jitter).
-            var failedIds = new HashSet<long>(failed.Select(f => f.Id));
-            var attempts = claimed.Where(m => failedIds.Contains(m.Id))
-                .ToDictionary(m => m.Id, m => m.Attempt);
-            await using var failScope = _scopes.CreateAsyncScope();
-            var failDb = failScope.ServiceProvider.GetRequiredService<DbContext>();
-            await MarkFailedAsync(failDb, failed, attempts, CancellationToken.None, _time).ConfigureAwait(false);
+            // Лизу отпускаем всегда — даже при отмене: иначе ключ залипнет до TTL.
+            // Безопасно: следующий pump заново возьмёт лизу перед claim своих строк.
+            await ReleasePartitionsAsync(ownedKeys, CancellationToken.None).ConfigureAwait(false);
         }
 
         return claimed.Count;
+    }
+
+    /// <summary>
+    /// Фаза 1 pump: какие ключи ждут отправки + захват/продление их лиз.
+    /// Возвращает ключи, принадлежащие этому инстансу на время pump.
+    /// </summary>
+    private async Task<HashSet<string>> AcquirePartitionLeasesAsync(CancellationToken ct)
+    {
+        await using var scope = _scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<DbContext>();
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var pendingKeys = await db.Database
+            .SqlQueryRaw<string>(
+                """
+                SELECT DISTINCT "PartitionKey" FROM avtobus_outbox
+                WHERE "SentAt" IS NULL
+                  AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= {0})
+                  AND ("SendAfter" IS NULL OR "SendAfter" <= {1})
+                  AND "PartitionKey" IS NOT NULL
+                LIMIT {2}
+                """, now - _opt.StaleClaim, now, _opt.BatchSize)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var owned = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in pendingKeys)
+        {
+            if (await TryAcquirePartitionLeaseAsync(db, key, _claimBy, now, _opt.PartitionLeaseTtl, ct).ConfigureAwait(false))
+                owned.Add(key);
+        }
+
+        return owned;
+    }
+
+    /// <summary>
+    /// Фаза 2 pump: claim строк — только свои ключи и бесключевые (аудит A1).
+    /// IN-список собирается параметризованно (как в <see cref="MarkFailedAsync"/>),
+    /// LIMIT инлайнится: это проверенный int (BatchSize ≥ 1 по Validate()).
+    /// </summary>
+    private static async Task<List<OutboxMessage>> ClaimAsync(
+        DbContext db, HashSet<string> ownedKeys, int batchSize,
+        DateTime now, DateTime staleBefore, CancellationToken ct)
+    {
+        var factory = System.Data.Common.DbProviderFactories.GetFactory(db.Database.GetDbConnection())
+            ?? throw new InvalidOperationException("Провайдер БД не найден.");
+        System.Data.Common.DbParameter Param(string name, object value)
+        {
+            var p = factory.CreateParameter()
+                ?? throw new InvalidOperationException("Провайдер не создал параметр.");
+            p.ParameterName = name;
+            p.Value = value;
+            return p;
+        }
+
+        var sql = new System.Text.StringBuilder(
+            """
+            SELECT * FROM avtobus_outbox
+            WHERE "SentAt" IS NULL
+              AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= @stale)
+              AND ("SendAfter" IS NULL OR "SendAfter" <= @now)
+            """);
+        var pars = new List<object> { Param("@stale", staleBefore), Param("@now", now) };
+
+        if (ownedKeys.Count > 0)
+        {
+            var i = 0;
+            var names = new List<string>(ownedKeys.Count);
+            foreach (var key in ownedKeys)
+            {
+                var name = $"@k{i++}";
+                names.Add(name);
+                pars.Add(Param(name, key));
+            }
+            sql.Append($" AND (\"PartitionKey\" IS NULL OR \"PartitionKey\" IN ({string.Join(", ", names)}))");
+        }
+        else
+        {
+            sql.Append(" AND \"PartitionKey\" IS NULL");
+        }
+        sql.Append($" ORDER BY \"Id\" LIMIT {Math.Max(1, batchSize)} FOR UPDATE SKIP LOCKED");
+
+        return await db.Set<OutboxMessage>()
+            .FromSqlRaw(sql.ToString(), pars.ToArray())
+            .ToListAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Атомарный захват лизы партиции: перехват просроченной либо вставка новой.
+    /// PK-гонку на вставке проигравший определяет по исключению/нулю строк — false.
+    /// </summary>
+    public static async Task<bool> TryAcquirePartitionLeaseAsync(
+        DbContext db, string partitionKey, string owner, DateTime now, TimeSpan ttl, CancellationToken ct)
+    {
+        var expires = now + ttl;
+
+        var taken = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            UPDATE avtobus_outbox_leases SET "Owner"={owner}, "ExpiresAt"={expires}
+            WHERE "PartitionKey"={partitionKey} AND ("ExpiresAt"<={now} OR "Owner"={owner})
+            """, ct).ConfigureAwait(false);
+        if (taken == 1)
+            return true;
+
+        try
+        {
+            var inserted = await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO avtobus_outbox_leases ("PartitionKey", "Owner", "ExpiresAt")
+                SELECT {partitionKey}, {owner}, {expires}
+                WHERE NOT EXISTS (SELECT 1 FROM avtobus_outbox_leases WHERE "PartitionKey"={partitionKey})
+                """, ct).ConfigureAwait(false);
+            return inserted == 1;
+        }
+        catch (Exception)
+        {
+            // Гонка вставки (PK-конфликт приходит не всегда как DbUpdateException —
+            // провайдер может бросить сырой PostgresException) либо любая другая ошибка:
+            // считаем лизу проигранной и отдаём строки владельцу следующим pump.
+            // Fail-open здесь безопасен: at-least-once допускает дубли (ловит inbox-дедуп),
+            // а падение pump оставляло бы строки в claim до StaleClaim.
+            return false;
+        }
+    }
+
+    private async Task ReleasePartitionsAsync(IReadOnlyCollection<string> leasedKeys, CancellationToken ct)
+    {
+        if (leasedKeys.Count == 0)
+            return;
+
+        await using var scope = _scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<DbContext>();
+        foreach (var key in leasedKeys)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                DELETE FROM avtobus_outbox_leases WHERE "PartitionKey"={key} AND "Owner"={_claimBy}
+                """, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
