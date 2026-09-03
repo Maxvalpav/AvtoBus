@@ -119,7 +119,7 @@ jobs:
           ls -lh ./artifacts-verify/sbom.spdx.json
 
       - name: Upload nupkgs + SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nupkgs-verify
           path: ./artifacts-verify/*
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: '**/TestResults/*.trx'
@@ -276,7 +276,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-external-results
           path: '**/TestResults/*.trx'
@@ -297,7 +297,7 @@ jobs:
         run: dotnet run -c Release --project benchmarks/AvtoBus.Benchmarks --filter *PublishLatencyBench* --job short
 
       - name: Upload raw artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: BenchmarkDotNet.Artifacts/results/
