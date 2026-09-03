@@ -19,7 +19,7 @@
 
 ## Модель угроз (кратко)
 
-Подробно — [docs/36-threat-model.md](docs/36-threat-model.md).
+Полная версия — `docs/36-threat-model.md` (внутренний каталог docs, в git не входит).
 
 | Угроза | Митигация в AvtoBus |
 | --- | --- |
