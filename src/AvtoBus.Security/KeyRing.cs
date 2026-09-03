@@ -58,6 +58,8 @@ public sealed class KeyRing
 
             if (_keepPrevious == 0)
             {
+                foreach (var (_, old) in _generations.ToArray())
+                    if (!ReferenceEquals(old, next)) old.Clear();
                 _generations.Clear();
                 _generations[epoch] = next;
                 return;
@@ -66,8 +68,8 @@ public sealed class KeyRing
             var minKeep = epoch - _keepPrevious;
             foreach (var generation in _generations.Keys.ToArray())
             {
-                if (generation < minKeep)
-                    _generations.TryRemove(generation, out _);
+                if (generation < minKeep && _generations.TryRemove(generation, out var old))
+                    old.Clear();
             }
             RefreshSnapshot();
         }

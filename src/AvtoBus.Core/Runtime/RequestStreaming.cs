@@ -31,13 +31,22 @@ public sealed class StreamingReplyRouter
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
-        await foreach (var obj in ch.Reader.ReadAllAsync(cts.Token))
+        try
         {
-            if (obj is StreamEnd) break;
-            if (obj is Exception ex) throw ex;
-            yield return (TReply)obj;
+            await foreach (var obj in ch.Reader.ReadAllAsync(cts.Token))
+            {
+                if (obj is StreamEnd) break;
+                if (obj is Exception ex) throw ex;
+                yield return (TReply)obj;
+            }
         }
-        _channels.TryRemove(id, out _);
+        finally
+        {
+            // Таймаут/отмена раньше бросали исключение до TryRemove — канал и запись
+            // в словаре текли навсегда. Чистим всегда и будим возможных продюсеров.
+            _channels.TryRemove(id, out _);
+            try { ch.Writer.TryComplete(); } catch { }
+        }
     }
 
     public bool TryPush(Guid requestId, object reply)
@@ -46,12 +55,20 @@ public sealed class StreamingReplyRouter
         if (!ch.ReplyType.IsInstanceOfType(reply)) return false;
         return ch.Channel.Writer.TryWrite(reply);
     }
-    public bool TryComplete(Guid requestId) => _channels.TryGetValue(requestId, out var ch) && ch.Channel.Writer.TryWrite(new StreamEnd());
+    public bool TryComplete(Guid requestId)
+    {
+        if (!_channels.TryGetValue(requestId, out var ch)) return false;
+        if (!ch.Channel.Writer.TryWrite(new StreamEnd())) return false;
+        ch.Channel.Writer.TryComplete();
+        _channels.TryRemove(requestId, out _);
+        return true;
+    }
     public bool TryFail(Guid requestId, Exception ex)
     {
         if (!_channels.TryGetValue(requestId, out var ch)) return false;
         ch.Channel.Writer.TryWrite(ex);
         ch.Channel.Writer.TryComplete();
+        _channels.TryRemove(requestId, out _);
         return true;
     }
     public bool IsStreaming(Guid id) => _channels.ContainsKey(id);

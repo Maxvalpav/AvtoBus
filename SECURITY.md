@@ -28,15 +28,18 @@ AvtoBus ещё не достиг v1.0 и не используется в про
 
 ## Безопасность по дизайну
 
-- Никаких секретов в исходниках и тестах.
+- Никаких прод-секретов в исходниках и тестах. В `samples/` и CI встречаются
+  только dev-значения (`guest:guest`, `Password=app`) для локального запуска —
+  прод-ключи всегда из Key Vault / K8s secrets.
 - Сообщения могут содержать PII — не логируйте тела по умолчанию (идея 124);
   поля с `[PersonalData]` маскируются в диагностике и DLQ (`PiiMasker`, идея 456).
-- Подпись конвертов HMAC-SHA256 + envelope encryption AES-256-GCM реализованы
-  в `AvtoBus.Security` (идеи 451, 452, 455): подключение через
+- Подпись конвертов HMAC-SHA256 (схема v2, см. ниже) + envelope encryption AES-256-GCM
+  реализованы в `AvtoBus.Security` (идеи 451, 452, 455): подключение через
   `bus.UseEnvelopeSecurity(...)` / `AddAvtoBusSecurity()`. См. `docs/code/17-security-observability.md`.
 - Авторизация хендлеров через `[BusAuthorize]` + `AuthorizationMiddleware` (идея 453);
   отказ → `UnauthorizedMessageException` → DLQ без ретраев.
-- Проброс пользователя через подписанный заголовок `avtobus-user` (идея 454).
+- Проброс пользователя через заголовок `avtobus-user`: доверяем ему только при
+  валидной подписи конверта (`SignedPrincipalExtractor`, см. ниже) (идея 454).
 - Threat model (STRIDE) — ниже.
 
 ## Threat Model (STRIDE, идея 496)
@@ -47,19 +50,26 @@ AvtoBus ещё не достиг v1.0 и не используется в про
 
 | Угроза | Вектор | Митигация в AvtoBus | Остаётся на пользователе |
 |---|---|---|---|
-| **Spoofing** | Подделка источника сообщения | Подпись HMAC-SHA256 (`avtobus-signature`), проверка до десериализации; `RequireSignature` делает её обязательной | Распространение `MasterSecret`; идентичность подписанта `SigningIdentity` |
-| **Tampering** | Изменение тела/заголовков в пути | Подпись покрывает MessageId, MessageType, Body, ContentType и `avtobus-user`; любые правки ломают проверку → DLQ | Ротация ключей (`KeyRotationInterval`) |
+| **Spoofing** | Подделка источника сообщения | Подпись HMAC-SHA256 (`avtobus-signature`, схема v2), проверка до десериализации; `RequireSignature` делает её обязательной | Распространение `MasterSecret`; идентичность подписанта `SigningIdentity` |
+| **Tampering** | Изменение тела/заголовков в пути | v2 покрывает MessageId, MessageType, Body, ContentType, TenantId, CorrelationId, CausationId, ReplyTo, PartitionKey, Priority, DeliverAt, TTL, TraceParent и `avtobus-user`; правки ломают проверку → DLQ. Не покрыты: мутабельные при транспортировке поля (DeliveryAttempt, SentAt, Hops, exception-заголовки) и кастомные заголовки — критичное кладите в тело | Ротация ключей (`KeyRotationInterval`); `SignatureVersion = 1` только на время rollout в смешанном парке |
 | **Repudiation** | Отказ от факта отправки | `SignedByHeader` фиксирует подписанта | Аудиторские журналы приложения |
 | **Information Disclosure** | Чтение тела на транспорте | AES-256-GCM (`EncryptBody`); нонс в заголовке, целостность поверх подписи | Управление ключами (KMS/Key Vault в проде) |
 | **Denial of Service** | Флуд входящими / буст исходящих | Poison без ретраев для невалидных; outbound rate limit (`OutboundRatePerSecond`) | Входящий rate limiting на транспорте; лимиты размера сообщений |
-| **Elevation of Privilege** | Обработка сообщения без прав | `[BusAuthorize]` + `AuthorizationMiddleware`; principal из подписанного `avtobus-user`; `UnauthorizedMessageException` → DLQ | Источник principal (IPrincipalExtractor/SSO) |
+| **Elevation of Privilege** | Обработка сообщения без прав | `[BusAuthorize]` + `AuthorizationMiddleware`; при подключённой безопасности principal извлекается только из подписанного `avtobus-user` (`SignedPrincipalExtractor`, неподписанный → аноним → отказ); `UnauthorizedMessageException` → DLQ. Пустая OPA-политика запрещает при `FailClosed` | Источник principal (SSO); хендлеры без атрибута — осознанно без авторизации |
 
 Реализовано в 0.1.0–0.1.1 (прод):
-- mTLS — `SecurityOptions.Tls` / `BusOptions.TlsOptions` пробрасывается транспортерам, `TlsOptions.RequireClientCertificate` (идея 452).
+- mTLS — НЕ поддерживается транспортами: заданный `SecurityOptions.Tls` бросает
+  исключение на старте (fail-fast вместо молчаливого игнора). TLS termination —
+  на стороне брокера/транспорта (матрица ниже).
 - Allowlist типов — `BusConfigurator.UseAllowlist()` + `ITypeResolver`/`AllowlistResolver`, `MessageProcessor` → `Poison` без десериализации (идея 457, 451).
 - Multi-tenancy — `AvtoBus.Multitenancy` (уровни A/B/C, `TenantRateLimitMiddleware`, `RegionRouteGuard` с атрибутами `[Region]/[GeoReplicated]`) (461–467, 473).
 - Крипто-шреддинг — `AvtoBus.Security.CryptoShreddingService` (KMS `DeleteKeyAsync` + tombstone) + EventSourcing `SubjectDataProtection` per-subject AES-GCM (492–494); GDPR — `GdprSubjectIndexMigration` + `IGdprReportService` (287).
-- PII-маскирование — `PiiMasker` для `[PersonalData]` уже в DLQ/диагностике (456).
+- PII-маскирование — `PiiMasker` для `[PersonalData]` уже в DLQ/диагностике (456):
+  маска 128-битная детерминированная (SHA256(salt || value)) для корреляции;
+  соль развёртки — `BusOptions.PiiMaskSalt` (дефолт встроенный, кросс-процессный).
+  Покрывает только помеченные контракты: немаркированные типы в диагностике идут
+  как есть — размечайте PII-поля. Короткие PII принципиально брутфорсятся при
+  известной соли: соль — секрет, логи с масками — sensitive.
 - Профили данных — `BusConfigurator.UseDataProfile(DataProfile.Gdpr|Ru152Fz)` включает `PiiMaskingEnabled` по умолчанию (идея 498).
 - Аварийный режим — `BusConfigurator.UseReadOnly()` + `AvtoBusClient`/`MessageProcessor` блокировка исходящих, файл `~/.config/avtobus/readonly` и `AVTOBUS_READONLY=1`, CLI `avtobus readonly on|off|status` (идея 497).
 
@@ -67,5 +77,32 @@ AvtoBus ещё не достиг v1.0 и не используется в про
 
 По умолчанию (без явного `MasterSecret`) `AddAvtoBusSecurity` использует
 `avtobus-development-only` — этого достаточно для локальной разработки и тестов,
-но **никогда не используйте его в продакшене**. В проде ключи должны приходить
+но **никогда не используйте его в проде**. В проде ключи должны приходить
 из Key Vault / K8s secrets и ротироваться через `KeyRotationInterval`.
+
+## mTLS: матрица поддержки
+
+| Транспорт | mTLS на стороне AvtoBus | Как защищаться |
+|---|---|---|
+| InMemory | неприменимо (внутри процесса) | — |
+| RabbitMQ / Kafka / NATS / Redis / Sql / AzureServiceBus | не поддерживается | TLS termination средствами брокера и клиента транспорта (connection string / опции клиента), сеть уровня VPC/ Private Link |
+
+`SecurityOptions.Tls` оставлен как точка расширения, но его задание сейчас
+бросает `InvalidOperationException` при старте: невыполненное обещание защиты
+хуже честного «не умею».
+
+## CLI и дашборд: принятые решения
+
+- `avtobus config show` (table/json) маскирует пароли/токены в connection string;
+  полное значение — только `config show-secret`. Файл конфига — `0600` на Unix.
+- Сканирование сборок (`contracts`, `asyncapi`, `es`, `doctor --assembly`) грузит
+  DLL только с локального диска (`.dll`/`.exe`, без URL) в collectible
+  `AssemblyLoadContext` (файл не лочится, default-контекст не пачкается).
+- `asyncapi --output` не перезаписывает существующий файл без `--force`.
+- Дашборд требует authorization policy (`DashboardOptions.PolicyName`) на все
+  endpoint-ы; опасные действия в проде запрещены без явного флага (идея 482).
+  Просмотр DLQ санитизируется (`SanitizeBrowse`, дефолт вкл): redact заголовков
+  `avtobus-user`/`avtobus-exception-stack`, best-effort маскирование PII-полей
+  в JSON-телах, обрезка тел свыше `MaxBodyPreviewBytes`; фильтр тенанта —
+  `DashboardOptions.TenantId`. Реплей перечитывает очередь заново, поэтому
+  отображаемая копия может отличаться от оригинала.

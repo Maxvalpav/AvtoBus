@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AvtoBus.Contracts;
@@ -21,18 +22,42 @@ namespace AvtoBus.Diagnostics;
 public static class PiiMasker
 {
     private const int MaxCachedTypes = 2000;
+
+    /// <summary>
+    /// Соль детерминированной маски (pepper развёртки). По умолчанию константа —
+    /// маски коррелируются между процессами и рестартами; оператор задаёт свою через
+    /// <c>BusOptions.PiiMaskSalt</c> (утечка соли + логов = брутфорс коротких PII).
+    /// </summary>
+    public static string Salt { get; set; } = "avtobus-pii-v2";
+
     private static readonly ConcurrentDictionary<Type, FrozenDictionary<string, string>> MaskedProperties =
         new();
 
-    /// <summary>Маскирует строку: детерминированная маска по SHA256 (урезанная, для корреляции в логах).</summary>
+    /// <summary>
+    /// Маскирует строку: HMAC-подобная конструкция SHA256(salt || value), 128 бит.
+    /// Детерминирована для корреляции в логах; короткие PII принципиально брутфорсятся
+    /// при известной соли — поэтому соль развёртки должна быть секретом (см. Salt).
+    /// </summary>
     public static string Mask(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value ?? "";
 
-        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        // 8 байт = 16 hex = 64 бит энтропии, достаточно для корреляции без brute-force на короткие PII
-        return $"###{Convert.ToHexString(hash, 0, 8).ToLowerInvariant()}";
+        var saltBytes = Encoding.UTF8.GetBytes(Salt);
+        var valueBytes = Encoding.UTF8.GetBytes(value);
+        var input = new byte[saltBytes.Length + valueBytes.Length];
+        Buffer.BlockCopy(saltBytes, 0, input, 0, saltBytes.Length);
+        Buffer.BlockCopy(valueBytes, 0, input, saltBytes.Length, valueBytes.Length);
+        try
+        {
+            var hash = System.Security.Cryptography.SHA256.HashData(input);
+            // 16 байт = 32 hex = 128 бит: brute-force коротких PII упирается в перебор входов, а не в коллизии.
+            return $"###{Convert.ToHexString(hash, 0, 16).ToLowerInvariant()}";
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(input);
+        }
     }
 
     /// <summary>

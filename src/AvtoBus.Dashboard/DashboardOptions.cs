@@ -29,6 +29,30 @@ public sealed class DashboardOptions
     /// <summary>Максимум сообщений DLQ за один просмотр.</summary>
     public int MaxDeadLettersPerBrowse { get; set; } = 100;
 
+    /// <summary>
+    /// Санитизировать просмотр DLQ (дефолт true): redact чувствительных заголовков,
+    /// best-effort маскирование PII-полей в JSON-телах, обрезка гигантских тел.
+    /// Browse — только для глаз (реплей перечитывает очередь заново), поэтому
+    /// копия для отображения может отличаться от оригинала.
+    /// </summary>
+    public bool SanitizeBrowse { get; set; } = true;
+
+    /// <summary>
+    /// Фильтр тенанта для просмотра DLQ (уровень B/C): null — все тенанты.
+    /// Оператор видит только сообщения своего тенанта.
+    /// </summary>
+    public string? TenantId { get; set; }
+
+    /// <summary>Потолок тела сообщения в просмотре DLQ, байт. Большее обрезается.</summary>
+    public int MaxBodyPreviewBytes { get; set; } = 32 * 1024;
+
+    /// <summary>Заголовки, всегда redact'ящиеся в просмотре (секреты/стеки/PII).</summary>
+    public HashSet<string> RedactedHeaders { get; } =
+    [
+        "avtobus-user",
+        "avtobus-exception-stack",
+    ];
+
     /// <summary>Максимум сообщений DLQ в секунду при массовом реплее (идея 168).</summary>
     public int ReplayMaxPerSecond { get; set; } = 10;
 }

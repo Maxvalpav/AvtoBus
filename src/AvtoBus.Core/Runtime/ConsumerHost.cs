@@ -22,6 +22,7 @@ public sealed class ConsumerHost(
     : BackgroundService, AvtoBus.Observability.IConsumerLagProvider
 {
     private readonly List<ConsumerRunner> _runners = [];
+    private int _stopped;
 
     /// <summary>Состояние консьюмеров — для health-модели и дашборда (идея 49).</summary>
     public IReadOnlyList<ConsumerRunner> Runners => _runners;
@@ -215,6 +216,14 @@ public sealed class ConsumerHost(
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        // StopAsync могут вызвать дважды (вручную + Host.StopAsync при dispose):
+        // дрейн и Dispose ранеров выполняем один раз.
+        if (Interlocked.Exchange(ref _stopped, 1) == 1)
+        {
+            await base.StopAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         // 1. Перестаём брать новые сообщения. In-flight обработки продолжают работать:
         // их доделываем, а не отменяем (идея 35).
         foreach (var runner in _runners)
@@ -228,6 +237,15 @@ public sealed class ConsumerHost(
             await runner.DrainAsync(linked.Token).ConfigureAwait(false);
 
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
+
+        // Ранеры держат CTS + SemaphoreSlim + PartitionRouter: без Dispose они текли
+        // до конца жизни хоста (заметно в тестах с пересозданием хостов).
+        // Дрейн уже завершён, поэтому DisposeAsync возвращается сразу.
+        foreach (var runner in _runners)
+        {
+            try { await runner.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception ex) { logger.LogDebug(ex, "Ошибка Dispose ранера {Consumer}", runner.Name); }
+        }
     }
 }
 
@@ -266,7 +284,13 @@ public sealed class ConsumerRunner(
     public Task? RunTask { get; internal set; }
 
     /// <summary>Останавливает приём новых сообщений; начатые обработки продолжают работать.</summary>
-    public void StopReceiving() => _receiveCts.Cancel();
+    public void StopReceiving()
+    {
+        // Идемпотентно и безопасно после Dispose: повторный StopAsync хоста
+        // (тесты + Host.StopAsync при Dispose харнесса) не должен падать.
+        try { _receiveCts.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
 
     private long _processed;
     private long _failed;
@@ -641,11 +665,15 @@ internal sealed class PartitionRouter : IAsyncDisposable
         await Task.WhenAll(_workers).WaitAsync(ct).ConfigureAwait(false);
     }
 
+    private int _disposed;
+
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
         Complete();
         try { await Task.WhenAll(_workers).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); } catch { }
-        await _shutdown.CancelAsync().ConfigureAwait(false);
+        try { await _shutdown.CancelAsync().ConfigureAwait(false); } catch (ObjectDisposedException) { }
         _shutdown.Dispose();
     }
 }

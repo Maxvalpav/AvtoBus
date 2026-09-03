@@ -91,8 +91,14 @@ public sealed class WorkflowInstanceRunner
     }
 
     public IWorkflowContext CreateContext(string workflowId)
+        // Синхронный фасад для DI/конструкторов: уходим на пул, чтобы не дедлочить
+        // чужой SynchronizationContext. Из async-кода используй CreateContextAsync.
+        => Task.Run(() => CreateContextAsync(workflowId)).GetAwaiter().GetResult();
+
+    /// <summary>Async-версия <see cref="CreateContext"/> — используй её из async-кода, чтобы не было sync-over-async.</summary>
+    public async Task<IWorkflowContext> CreateContextAsync(string workflowId, CancellationToken ct = default)
     {
-        var hist = _store.ReadHistoryAsync(workflowId, 0, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        var hist = await _store.ReadHistoryAsync(workflowId, 0, ct).ConfigureAwait(false);
         var max = hist.Count > 0 ? hist.Max(h => h.Sequence) : -1;
         return new DefaultWorkflowContext(workflowId, _store, _scheduled, _clock, max);
     }
@@ -104,9 +110,8 @@ public sealed class WorkflowInstanceRunner
         public Guid NewGuid() => Guid.NewGuid();
         public void ContinueAsNew(object input)
         {
-            // Синхронный фасад: реальный движок делает ресет исполнения; Wait() — дедлок под SynchronizationContext.
-            // Используем GetAwaiter().GetResult() с ConfigureAwait(false) вне контекста.
-            store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+            // Синхронный фасад интерфейса: уходим на пул, прямой Wait() дедлочил под SynchronizationContext.
+            Task.Run(() => store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], CancellationToken.None)).GetAwaiter().GetResult();
         }
 
         public Task SleepUntil(DateTimeOffset at, CancellationToken ct = default)
@@ -189,7 +194,17 @@ public sealed class WorkflowInstanceRunner
                     await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ActivityCompleted", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result), CreatedAt = clock.GetUtcNow() }], CancellationToken.None);
                     return result;
                 }
-                catch (Exception ex) { last = ex; if (attempt < options.MaxAttempts) await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt)); }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    if (attempt < options.MaxAttempts)
+                    {
+                        // Backoff с cap и jitter вместо фиксированных 100*attempt без токена.
+                        var delayMs = Math.Min(100 * attempt, 5_000) * (0.8 + Random.Shared.NextDouble() * 0.4);
+                        try { await Task.Delay(TimeSpan.FromMilliseconds(delayMs), clock); }
+                        catch (OperationCanceledException) { break; }
+                    }
+                }
             }
             await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ActivityFailed", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(last?.Message ?? "unknown"), CreatedAt = clock.GetUtcNow() }], CancellationToken.None);
             throw last ?? new InvalidOperationException("Activity failed");

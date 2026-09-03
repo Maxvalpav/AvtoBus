@@ -45,7 +45,7 @@ public static class DoctorCommand
                 }
                 else
                 {
-                    var asm = Assembly.LoadFrom(Path.GetFullPath(assemblyPath));
+                    var asm = AssemblyLoader.LoadContractsAssembly(assemblyPath);
                     var contracts = ContractScanner.Scan(asm);
                     Console.WriteLine($"  [ok]  Сборка {asm.GetName().Name}: {contracts.Count} контрактов");
                 }

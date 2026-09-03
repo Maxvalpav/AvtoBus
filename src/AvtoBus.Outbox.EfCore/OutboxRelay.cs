@@ -53,6 +53,15 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
             {
                 return;
             }
+            catch (Exception ex)
+            {
+                // Раньше любое исключение убивало BackgroundService навсегда (silent stall outbox).
+                // Логируем и повторяем через интервал вместо смерти relay.
+                _log.LogError(ex, "Outbox pump failed, retrying");
+                try { await Task.Delay(_opt.PollInterval, stopping).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
+                continue;
+            }
 
             if (pumped == 0)
             {
@@ -60,49 +69,63 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                 {
                     await _signal.WaitAsync(_opt.PollInterval, stopping).ConfigureAwait(false);
                 }
-                catch { return; }
+                catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogDebug(ex, "Outbox signal wait failed");
+                    try { await Task.Delay(_opt.PollInterval, stopping).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
+                }
             }
         }
     }
 
     private async Task<int> PumpAsync(CancellationToken ct)
     {
-        await using var scope = _scopes.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<DbContext>();
-
-        await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-
-        // claim: FOR UPDATE SKIP LOCKED в транзакции — каждую строку может взять только один relay.
-        // ClaimedAt старше StaleClaim считается осиротевшим (relay умер после claim, до отправки) и пере-claim'ится.
-        var staleBefore = DateTime.UtcNow - _opt.StaleClaim;
-        var claimed = await db.Set<OutboxMessage>()
-            .FromSqlInterpolated($"""
-                SELECT * FROM avtobus_outbox
-                WHERE "SentAt" IS NULL
-                  AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= {staleBefore})
-                  AND ("SendAfter" IS NULL OR "SendAfter" <= {DateTime.UtcNow})
-                ORDER BY "Id"
-                LIMIT {_opt.BatchSize}
-                FOR UPDATE SKIP LOCKED
-                """)
-            .ToListAsync(ct).ConfigureAwait(false);
-
-        if (claimed.Count == 0)
+        List<OutboxMessage> claimed;
+        // Claim-скоуп живёт только на время claim+commit: DbContext/транзакция
+        // не держатся через сетевые SendAsync (иначе пул соединений умирает на медленном брокере).
+        await using (var scope = _scopes.CreateAsyncScope())
         {
+            var db = scope.ServiceProvider.GetRequiredService<DbContext>();
+
+            await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+            // claim: FOR UPDATE SKIP LOCKED в транзакции — каждую строку может взять только один relay.
+            // ClaimedAt старше StaleClaim считается осиротевшим (relay умер после claim, до отправки) и пере-claim'ится.
+            var staleBefore = DateTime.UtcNow - _opt.StaleClaim;
+            claimed = await db.Set<OutboxMessage>()
+                .FromSqlInterpolated($"""
+                    SELECT * FROM avtobus_outbox
+                    WHERE "SentAt" IS NULL
+                      AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= {staleBefore})
+                      AND ("SendAfter" IS NULL OR "SendAfter" <= {DateTime.UtcNow})
+                    ORDER BY "Id"
+                    LIMIT {_opt.BatchSize}
+                    FOR UPDATE SKIP LOCKED
+                    """)
+                .ToListAsync(ct).ConfigureAwait(false);
+
+            if (claimed.Count == 0)
+            {
+                await tx.CommitAsync(ct).ConfigureAwait(false);
+                return 0;
+            }
+
+            Interlocked.Add(ref _pending, claimed.Count);
+
+            foreach (var m in claimed)
+            {
+                m.ClaimedAt = DateTime.UtcNow;
+                m.ClaimedBy = _claimBy;
+            }
+
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
             await tx.CommitAsync(ct).ConfigureAwait(false);
-            return 0;
         }
-
-        Interlocked.Add(ref _pending, claimed.Count);
-
-        foreach (var m in claimed)
-        {
-            m.ClaimedAt = DateTime.UtcNow;
-            m.ClaimedBy = _claimBy;
-        }
-
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
 
         var sent = new List<long>(claimed.Count);
         var failed = new List<(long Id, string Error)>();
@@ -134,9 +157,12 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         {
             Interlocked.Add(ref _pending, -(sent.Count + failed.Count));
 
+            await using var markScope = _scopes.CreateAsyncScope();
+            var markDb = markScope.ServiceProvider.GetRequiredService<DbContext>();
+
             // Маркировка — идемпотентная фиксация уже отправленного факта: завершаем её даже при
             // остановке, иначе сообщение «отправлено, но SentAt не проставлен» вернётся дублем.
-            await db.Set<OutboxMessage>()
+            await markDb.Set<OutboxMessage>()
                 .Where(o => sent.Contains(o.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(o => o.SentAt, DateTime.UtcNow)
@@ -148,13 +174,17 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         {
             var failedIds = failed.Select(f => f.Id).ToList();
             var failedMap = failed.ToDictionary(f => f.Id, f => f.Error);
-            // Batch mark failed with exponential backoff: SendAfter = now + 2^attempt
-            await db.Set<OutboxMessage>()
+            await using var failScope = _scopes.CreateAsyncScope();
+            var failDb = failScope.ServiceProvider.GetRequiredService<DbContext>();
+            // Было 2^Attempt без cap — Attempt=20 давал ~12 суток и переполнение.
+            // Cap 1024с×jitter, общий потолок 1ч. jitter — константа батча (параметр запроса).
+            var jitterFactor = 0.8 + Random.Shared.NextDouble() * 0.4;
+            await failDb.Set<OutboxMessage>()
                 .Where(o => failedIds.Contains(o.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(o => o.Attempt, o => o.Attempt + 1)
                     .SetProperty(o => o.LastError, o => failedMap[o.Id])
-                    .SetProperty(o => o.SendAfter, o => DateTime.UtcNow.AddSeconds(Math.Pow(2, o.Attempt)))
+                    .SetProperty(o => o.SendAfter, o => DateTime.UtcNow.AddSeconds(Math.Min(Math.Pow(2, o.Attempt) * jitterFactor, 3600)))
                     .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
                 .ConfigureAwait(false);
         }

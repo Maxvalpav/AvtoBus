@@ -83,7 +83,7 @@ public class WorkflowWaitTests
         var time = new FakeTimeProvider();
         var runner = new WorkflowInstanceRunner(store, time);
         var id = await runner.StartAsync("test", new { }, CancellationToken.None);
-        var ctx = runner.CreateContext(id);
+        var ctx = await runner.CreateContextAsync(id);
         await ctx.SleepUntil(time.GetUtcNow().AddMinutes(5));
         var hist = await store.ReadHistoryAsync(id, 0, CancellationToken.None);
         Assert.Contains(hist, h => h.EventType == "TimerCreated");

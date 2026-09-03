@@ -41,5 +41,12 @@ public sealed class CliConfig
         {
             WriteIndented = true,
         }));
+        // В конфиге лежит connection string — ограничиваем права до owner-only (best effort).
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        catch { }
     }
 }

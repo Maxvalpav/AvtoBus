@@ -12,12 +12,14 @@ public interface IOutbox
 }
 
 /// <summary>EF-реализация: складывает конверт в <c>avtobus_outbox</c> и будит relay после коммита.</summary>
-public sealed class EfCoreOutbox<TDbContext> : IOutbox, IOutboxSink where TDbContext : DbContext
+public sealed class EfCoreOutbox<TDbContext> : IOutbox, IOutboxSink, IDisposable where TDbContext : DbContext
 {
     private readonly TDbContext _db;
     private readonly IEnvelopeSerializer _ser;
     private readonly IOutboxSignal _signal;
     private readonly TimeProvider _clock;
+    private readonly EventHandler<SavedChangesEventArgs> _savedChangesHandler;
+    private int _disposed;
 
     public EfCoreOutbox(TDbContext db, IEnvelopeSerializer ser, IOutboxSignal signal, TimeProvider clock)
     {
@@ -25,7 +27,17 @@ public sealed class EfCoreOutbox<TDbContext> : IOutbox, IOutboxSink where TDbCon
         _ser = ser;
         _signal = signal;
         _clock = clock;
-        _db.SavedChanges += (_, _) => _signal.Nudge();
+        // Храним делегат, чтобы отписаться в Dispose: иначе при DbContext pooling
+        // подписка переживает возврат контекста в пул (утечка + многократный Nudge).
+        _savedChangesHandler = (_, _) => _signal.Nudge();
+        _db.SavedChanges += _savedChangesHandler;
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+        _db.SavedChanges -= _savedChangesHandler;
     }
 
     public async ValueTask EnqueueAsync(Envelope env, OutboxRoute route, CancellationToken ct)

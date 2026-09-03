@@ -200,6 +200,9 @@ public sealed class InMemoryTransport : ITransport,
         foreach (var queue in _queues.Values)
             queue.Complete();
 
+        foreach (var queue in _queues.Values)
+            queue.Dispose();
+
         _shutdown.Dispose();
     }
 

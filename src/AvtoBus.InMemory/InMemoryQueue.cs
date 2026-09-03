@@ -8,7 +8,7 @@ namespace AvtoBus.InMemory;
 /// WFQ: вес тенанта учитывается как `priority + tenantWeight` (тонкая настройка через header `avtobus.wfq-weight`).
 /// Back-pressure как у Channel (BoundedChannelFullMode.Wait).
 /// </summary>
-internal sealed class InMemoryQueue
+internal sealed class InMemoryQueue : IDisposable
 {
     private readonly string _name;
     private readonly int _capacity;
@@ -20,6 +20,7 @@ internal sealed class InMemoryQueue
     private readonly Lock _gate = new();
     private readonly List<PendingMessage> _delayed = [];
     private readonly Lock _delayedGate = new();
+    private int _completed; // 0 — открыта, 1 — завершена: читатели выходят, писатели получают OCE
 
     public InMemoryQueue(string name, int capacity, TimeProvider time)
     {
@@ -119,13 +120,17 @@ internal sealed class InMemoryQueue
     {
         while (!ct.IsCancellationRequested)
         {
+            if (Volatile.Read(ref _completed) == 1) yield break;
             try { await _signal.WaitAsync(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { yield break; }
             PendingMessage msg;
             lock (_gate)
             {
                 if (_pq.Count == 0)
+                {
+                    if (Volatile.Read(ref _completed) == 1) break;
                     continue;
+                }
                 msg = _pq.Dequeue();
             }
             _capacityGate.Release();
@@ -154,7 +159,20 @@ internal sealed class InMemoryQueue
         return true;
     }
 
-    public void Complete() { }
+    public void Complete()
+    {
+        if (Interlocked.Exchange(ref _completed, 1) == 1)
+            return;
+        // Будим всех ожидающих читателей, чтобы ReadAllAsync вышел, а не висел вечно.
+        try { _signal.Release(int.MaxValue / 2); } catch (SemaphoreFullException) { }
+    }
+
+    public void Dispose()
+    {
+        Complete();
+        _signal.Dispose();
+        _capacityGate.Dispose();
+    }
 
     private sealed class PriorityComparer : IComparer<(int priority, long seq)>
     {

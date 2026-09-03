@@ -32,8 +32,10 @@ public static class CliRunner
     public static string ThisAssembly => typeof(PlaceOrder).Assembly.Location;
 }
 
+[Collection("cli")]
 public class CliSmokeTests
 {
+    // NOTE: та же коллекция, что у ConfigRedactTests — CliRunner не потокобезопасен (Console.Out).
     [Fact]
     public void Doctor_reports_runtime_and_exits_zero()
     {

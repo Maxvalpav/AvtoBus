@@ -36,9 +36,15 @@ public sealed class InMemoryMongoOutboxStore : IMongoOutboxStore
     }
     public ValueTask MarkDispatchedAsync(Guid id, CancellationToken ct)
     {
-        if (_map.TryGetValue(id, out var d)) _map[id] = d with { Dispatched = true };
+        // Удаляем сразу: хранение Dispatched=true навсегда давало unbounded-рост
+        // памяти и O(N)-скан каждый poll. Для in-memory тестового стора окно
+        // идемпотентности не нужно — прод-реализация на Mongo использует TTL-индекс.
+        _map.TryRemove(id, out _);
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>Текущий размер стора — для метрик и тестов на утечки.</summary>
+    public int Count => _map.Count;
 }
 
 /// <summary>Marten variant: хранит outbox как `IEvent` внутри `IDocumentSession`.</summary>

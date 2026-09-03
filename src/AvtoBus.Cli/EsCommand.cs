@@ -103,15 +103,5 @@ public static class EsCommand
             : "Это команда: в ES-модели она валидируется и сворачивается в события (Decider).");
     }
 
-    private static Assembly ResolveAssembly(string? path)
-    {
-        if (path is null)
-            return typeof(IBus).Assembly;
-
-        var full = Path.GetFullPath(path);
-        if (!File.Exists(full))
-            throw new FileNotFoundException($"Сборка не найдена: {full}");
-
-        return Assembly.LoadFrom(full);
-    }
+    private static Assembly ResolveAssembly(string? path) => AssemblyLoader.LoadContractsAssembly(path);
 }

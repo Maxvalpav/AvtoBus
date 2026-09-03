@@ -12,11 +12,13 @@ public static class AsyncApiCommand
 
         var assembly = new Option<string>("--assembly") { Description = "Путь к сборке с контрактами" };
         var output = new Option<string>("--output") { Description = "Путь к выходному asyncapi.json (по умолчанию stdout)" };
+        var force = new Option<bool>("--force") { Description = "Перезаписать существующий --output без подтверждения" };
         var title = new Option<string>("--title") { DefaultValueFactory = _ => "AvtoBus API", Description = "Заголовок документа" };
         var version = new Option<string>("--version") { DefaultValueFactory = _ => "1.0.0", Description = "Версия" };
 
         command.Add(assembly);
         command.Add(output);
+        command.Add(force);
         command.Add(title);
         command.Add(version);
 
@@ -24,6 +26,7 @@ public static class AsyncApiCommand
         {
             var asmPath = parseResult.GetValue(assembly);
             var outPath = parseResult.GetValue(output);
+            var overwrite = parseResult.GetValue(force);
             var docTitle = parseResult.GetValue(title) ?? "AvtoBus API";
             var docVersion = parseResult.GetValue(version) ?? "1.0.0";
 
@@ -47,6 +50,14 @@ public static class AsyncApiCommand
             var json = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
             if (outPath is not null)
             {
+                // Не затираем чужой файл молча: перезапись только с --force.
+                if (!overwrite && File.Exists(outPath))
+                {
+                    Console.Error.WriteLine($"Файл уже существует: {outPath}. Повтори с --force для перезаписи.");
+                    return 2;
+                }
+                var dir = Path.GetDirectoryName(Path.GetFullPath(outPath));
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 await File.WriteAllTextAsync(outPath, json, ct);
                 Console.WriteLine($"AsyncAPI: {contracts.Count} контрактов → {outPath}");
             }
@@ -111,11 +122,5 @@ public static class AsyncApiCommand
     private static string MapType(Type t)
         => t == typeof(string) || t == typeof(Guid) ? "string" : t == typeof(int) || t == typeof(long) ? "integer" : t == typeof(bool) ? "boolean" : t == typeof(decimal) || t == typeof(double) ? "number" : "object";
 
-    private static Assembly ResolveAssembly(string? path)
-    {
-        if (path is null) return typeof(IBus).Assembly;
-        var full = Path.GetFullPath(path);
-        if (!File.Exists(full)) throw new FileNotFoundException($"Сборка не найдена: {full}");
-        return Assembly.LoadFrom(full);
-    }
+    private static Assembly ResolveAssembly(string? path) => AssemblyLoader.LoadContractsAssembly(path);
 }

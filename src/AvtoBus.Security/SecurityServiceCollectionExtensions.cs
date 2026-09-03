@@ -28,6 +28,7 @@ public static class SecurityServiceCollectionExtensions
 
         var options = new SecurityOptions();
         configure?.Invoke(options);
+        options.Validate();
 
         var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
@@ -41,6 +42,9 @@ public static class SecurityServiceCollectionExtensions
 
         services.AddSingleton(options);
         services.AddSingleton(sp => new EnvelopeSecurity(sp.GetRequiredService<SecurityOptions>()));
+        // Fail-closed principal: раз безопасность подключена — неподписанному
+        // avtobus-user больше не доверяем (заменяет HeaderPrincipalExtractor ядра).
+        services.Replace(ServiceDescriptor.Singleton<IPrincipalExtractor, SignedPrincipalExtractor>());
 
         if (options.KeyRotationInterval is not null)
             services.AddHostedService(sp =>
@@ -60,6 +64,7 @@ public static class SecurityServiceCollectionExtensions
     {
         var options = new SecurityOptions();
         configure(options);
+        options.Validate();
 
         var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
@@ -75,6 +80,8 @@ public static class SecurityServiceCollectionExtensions
 
         configurator.EnvelopeSecurity = security;
         configurator.Services.AddSingleton(security);
+        // Fail-closed principal (см. выше): неподписанному avtobus-user не доверяем.
+        configurator.Services.Replace(ServiceDescriptor.Singleton<IPrincipalExtractor, SignedPrincipalExtractor>());
 
         if (options.KeyRotationInterval is not null)
         {

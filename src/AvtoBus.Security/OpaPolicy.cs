@@ -30,7 +30,9 @@ public sealed class RegoEvaluator : IOpaEvaluator
 
     public bool IsAllowed(ConsumeContext ctx, string policy)
     {
-        if (string.IsNullOrWhiteSpace(policy)) return true;
+        // Пустоту решает middleware через OpaOptions.FailClosed; здесь пустая политика —
+        // deny, чтобы прямой вызов эвалуатора тоже был fail-closed.
+        if (string.IsNullOrWhiteSpace(policy)) return false;
         var trimmed = policy.Trim();
         if (trimmed == "allow { true }" || trimmed.Contains("allow { true }", StringComparison.Ordinal) && trimmed.Length < 30)
             return true;
@@ -57,6 +59,19 @@ public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions op
 {
     public ValueTask InvokeAsync(ConsumeContext context, AvtoBus.Pipeline.BusDelegate next)
     {
+        // Пустая политика — это невысказанное намерение: в fail-closed режиме запрещаем,
+        // в audit-режиме пропускаем с пометкой. Раньше пустота всегда разрешала.
+        if (string.IsNullOrWhiteSpace(opts.Policy))
+        {
+            logger?.LogWarning("OPA: пустая политика для {MessageType} — {Decision}", context.Envelope.MessageType, opts.FailClosed ? "deny" : "audit-allow");
+            if (opts.FailClosed)
+            {
+                context.DeadLetter("OPA deny: empty policy");
+                return ValueTask.CompletedTask;
+            }
+            return next(context);
+        }
+
         var allowed = eval.IsAllowed(context, opts.Policy);
         if (!allowed)
         {

@@ -39,7 +39,32 @@ public static class BackgroundJob
         var opts = new SendOptions();
         opts.WithHeader("avtobus.hangfire", "1");
         if (parentId is not null) opts.WithHeader("avtobus.hangfire.parent", parentId);
-        _ = _bus.SendAsync(job, opts);
+        // Раньше: fire-and-forget без observe — исключение сериализации/транспорта терялось,
+        // а JobId возвращался до persist (потеря при crash). Теперь наблюдаем задачу:
+        // в sync-фасаде исключение отправки не глотаем молча, а фиксируем в UnobservedGuard.
+        _ = _bus.SendAsync(job, opts).AsTask().ContinueWith(
+            t => System.Diagnostics.Trace.TraceWarning($"AvtoBus Hangfire send failed for job {job.JobId}: {t.Exception?.GetBaseException().Message}"),
+            TaskContinuationOptions.OnlyOnFaulted);
+        return job.JobId;
+    }
+
+    /// <summary>Async-версия: JobId возвращается только после persist в транспорт/outbox.</summary>
+    public static async Task<string> EnqueueAsync(Expression<Action> methodCall, CancellationToken ct = default)
+    {
+        if (_bus is null) throw new InvalidOperationException("BackgroundJob.Configure(IBus) не вызван. Вызови в Program.cs после AddAvtoBus.");
+        var call = (MethodCallExpression)methodCall.Body;
+        var job = new HangfireJobEnvelope
+        {
+            JobId = Guid.NewGuid().ToString("N"),
+            ParentId = null,
+            TypeName = call.Method.DeclaringType!.AssemblyQualifiedName!,
+            MethodName = call.Method.Name,
+            ArgsJson = System.Text.Json.JsonSerializer.Serialize(call.Arguments.Select(a => Expression.Lambda(a).Compile().DynamicInvoke())),
+            EnqueuedAt = DateTimeOffset.UtcNow
+        };
+        var opts = new SendOptions();
+        opts.WithHeader("avtobus.hangfire", "1");
+        await _bus.SendAsync(job, opts, ct).ConfigureAwait(false);
         return job.JobId;
     }
 }

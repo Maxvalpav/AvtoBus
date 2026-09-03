@@ -10,6 +10,14 @@ public sealed class SecurityOptions
     /// <summary>Обязательная проверка подписи для входящих сообщений.</summary>
     public bool RequireSignature { get; set; }
 
+    /// <summary>
+    /// Версия схемы подписи исходящих сообщений: 2 (по умолчанию, покрывает маршрутизацию:
+    /// ReplyTo/PartitionKey/Priority/DeliverAt/TTL/TraceParent/CausationId) или 1 (legacy,
+    /// только для поэтапного rollout в смешанном парке — старые сервисы не проверяют v2).
+    /// Входящие проверяются по своей версии всегда (v1 без заголовка версии).
+    /// </summary>
+    public int SignatureVersion { get; set; } = 2;
+
     /// <summary>Шифровать тело исходящих сообщений (AES-GCM) и открывать входящие.</summary>
     public bool EncryptBody { get; set; }
 
@@ -43,6 +51,24 @@ public sealed class SecurityOptions
 
     /// <summary>mTLS для транспорта (идея 452+): проверка клиентского сертификата.</summary>
     public TlsOptions? Tls { get; set; }
+
+    /// <summary>
+    /// Fail-fast валидация: mTLS пока не проброшен ни в один транспорт, поэтому заданные
+    /// TLS-опции — это невыполненное обещание защиты. Бросаем исключение сразу, а не
+    /// молча игнорируем (см. SECURITY.md «mTLS: матрица поддержки»).
+    /// </summary>
+    public void Validate()
+    {
+        if (Tls is null)
+            return;
+        throw new InvalidOperationException(
+            "SecurityOptions.Tls задан, но mTLS пока не поддерживается ни одним транспортом " +
+            "(RabbitMQ/Kafka/NATS/Redis/Sql/ASB/InMemory): TLS настраивается на стороне брокера/транспорта, " +
+            "а не через AvtoBus. Уберите SecurityOptions.Tls — см. SECURITY.md «mTLS: матрица поддержки». " +
+            $"Получено: RequireClientCertificate={Tls.RequireClientCertificate}, " +
+            $"CaThumbprint={Tls.CaThumbprint ?? "(none)"}, " +
+            $"AllowedSubjectPrefix={Tls.AllowedSubjectPrefix ?? "(none)"}.");
+    }
 
     /// <summary>Allowlist типов десериализации — если задан, неизвестный тип сразу уходит в DLQ без рефлексии.</summary>
     public AllowlistOptions? Allowlist { get; set; }
@@ -95,5 +121,12 @@ public sealed class SecurityKeys
             SigningKey = Derive("signing"),
             EncryptionKey = Derive("encryption"),
         };
+    }
+
+    /// <summary>Затирает ключевые байты в памяти. Вызывай при ротации/снятии ключей с использования.</summary>
+    public void Clear()
+    {
+        CryptographicOperations.ZeroMemory(SigningKey);
+        CryptographicOperations.ZeroMemory(EncryptionKey);
     }
 }

@@ -71,6 +71,13 @@ public sealed class BusOptions
     /// </summary>
     public bool PiiMaskingEnabled { get; set; }
 
+    /// <summary>
+    /// Соль детерминированной PII-маски (pepper развёртки). Пусто — встроенный дефолт
+    /// (маски коррелируются между процессами). Задай свой секрет, чтобы утечка логов
+    /// не давала брутфорсить короткие PII перебором входов.
+    /// </summary>
+    public string PiiMaskSalt { get; set; } = "";
+
     public TimeSpan CanaryInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     public TimeSpan CanaryTimeout { get; set; } = TimeSpan.FromSeconds(10);
@@ -182,6 +189,13 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
     {
         get => Options.PiiMaskingEnabled;
         set => Options.PiiMaskingEnabled = value;
+    }
+
+    /// <summary>Соль PII-маски развёртки (см. <see cref="BusOptions.PiiMaskSalt"/>).</summary>
+    public string PiiMaskSalt
+    {
+        get => Options.PiiMaskSalt;
+        set => Options.PiiMaskSalt = value;
     }
 
     /// <summary>Имя сервиса: используется как группа консьюмеров по умолчанию.</summary>

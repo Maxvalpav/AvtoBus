@@ -177,6 +177,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAuthorizer, DefaultAuthorizer>();
         services.TryAddSingleton<IPrincipalExtractor, HeaderPrincipalExtractor>();
 
+        // Соль PII-маски развёртки применяется один раз при старте (PiiMasker — статический
+        // диагностический путь). Пустая соль = встроенный дефолт (корреляция между процессами).
+        if (!string.IsNullOrEmpty(options.PiiMaskSalt))
+            Diagnostics.PiiMasker.Salt = options.PiiMaskSalt;
+
         // Аномалия-детектор частоты событий (идея 314).
         if (options.TrafficAnomalyThreshold > 0)
             services.AddSingleton(new TrafficAnomalyDetector(

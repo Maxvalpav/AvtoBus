@@ -25,6 +25,18 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
     public bool IsEnabled { get; }
 
+    /// <summary>
+    /// Проверяет подпись входящего конверта всеми поколениями ключей, не расшифровывая тело.
+    /// Используется <see cref="SignedPrincipalExtractor"/>: контексту пользователя
+    /// (<c>avtobus-user</c>) доверяем только при валидной подписи.
+    /// </summary>
+    public bool HasValidSignature(Envelope envelope)
+    {
+        if (envelope.Header(EnvelopeSigner.SignatureHeader) is null)
+            return false;
+        return _keys.TryVerify(envelope, static (env, key) => EnvelopeSigner.Verify(env, key), out _);
+    }
+
     /// <summary>Точка ротации: вызывается hosted service'ом SecurityKeyRotationService по расписанию.</summary>
     public void RotateKeysIfDue(DateTimeOffset now) => _keys.RotateIfDue(now);
 
@@ -59,10 +71,13 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
         if (_options.RequireSignature)
         {
-            var signature = EnvelopeSigner.ComputeSignature(prepared, key.SigningKey);
+            var version = _options.SignatureVersion >= EnvelopeSigner.V2 ? EnvelopeSigner.V2 : EnvelopeSigner.V1;
+            var signature = EnvelopeSigner.ComputeSignature(prepared, key.SigningKey, version);
             prepared = prepared
                 .WithHeader(EnvelopeSigner.SignatureHeader, signature)
                 .WithHeader(EnvelopeSigner.SignedByHeader, serviceIdentity ?? _options.SigningIdentity);
+            if (version >= EnvelopeSigner.V2)
+                prepared = prepared.WithHeader(EnvelopeSigner.SignatureVersionHeader, "2");
         }
 
         return prepared;
