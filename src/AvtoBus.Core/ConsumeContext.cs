@@ -6,6 +6,7 @@ namespace AvtoBus;
 /// <summary>
 /// Всё, что нужно хендлеру и middleware в рамках обработки одного сообщения.
 /// Аналог <c>HttpContext</c>: живёт ровно один consume, скоуп DI — свой.
+/// Не наследуйте напрямую: единственный разрешённый наследник — <c>ConsumeContext&lt;T&gt;</c>.
 /// </summary>
 public class ConsumeContext
 {
@@ -75,14 +76,20 @@ public class ConsumeContext
     public IReadOnlyList<OutgoingMessage> Outgoing
         => (IReadOnlyList<OutgoingMessage>?)_outgoing ?? Array.Empty<OutgoingMessage>();
 
-    /// <summary>Опубликовать событие как каскад текущего сообщения.</summary>
+    /// <summary>
+    /// Опубликовать событие как каскад текущего сообщения: ставит в очередь исходящих,
+    /// физическая отправка — пайплайном ПОСЛЕ успеха хендлера (упал — ничего не улетело).
+    /// </summary>
     public ValueTask PublishAsync<T>(T @event, PublishOptions? options = null) where T : class
     {
         Enqueue(new OutgoingMessage(@event, OutgoingKind.Publish, options));
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>Отправить команду как каскад текущего сообщения.</summary>
+    /// <summary>
+    /// Отправить команду как каскад текущего сообщения: ставит в очередь исходящих,
+    /// физическая отправка — пайплайном ПОСЛЕ успеха хендлера.
+    /// </summary>
     public ValueTask SendAsync<T>(T command, SendOptions? options = null) where T : class
     {
         Enqueue(new OutgoingMessage(command, OutgoingKind.Send, options));

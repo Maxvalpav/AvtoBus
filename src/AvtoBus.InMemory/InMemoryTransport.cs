@@ -34,7 +34,7 @@ public sealed class InMemoryTransport : ITransport,
         _promoter = Task.Run(PromoteDelayedLoopAsync);
     }
 
-    public string Name => "inmemory";
+    public string Name => TransportNames.InMemory;
 
     /// <summary>Глубина всех очередей — для метрик и тестов.</summary>
     public IReadOnlyDictionary<string, int> QueueDepths

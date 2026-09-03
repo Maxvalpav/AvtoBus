@@ -54,7 +54,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
         }).Build();
     }
 
-    public string Name => "kafka";
+    public string Name => TransportNames.Kafka;
 
     /// <summary>Оценка лага группы — для метрики consumer.lag (идея 334). Точность — как у OFFSET query.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;

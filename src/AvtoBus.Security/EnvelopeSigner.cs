@@ -45,8 +45,10 @@ internal static class EnvelopeSigner
 
     private static void AddV1Fields(IncrementalHash hmac, Envelope envelope)
     {
+        if (envelope.MessageType is null)
+            throw new InvalidOperationException("Невозможно подписать конверт без MessageType.");
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.MessageId.ToString("N")));
-        AddField(hmac, Encoding.UTF8.GetBytes(envelope.MessageType!));
+        AddField(hmac, Encoding.UTF8.GetBytes(envelope.MessageType));
         AddField(hmac, envelope.Body.Span);
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.ContentType!));
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.TenantId ?? ""));

@@ -39,7 +39,7 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
         _admin = new ServiceBusAdministrationClient(options.ConnectionString);
     }
 
-    public string Name => "asb";
+    public string Name => TransportNames.AzureServiceBus;
 
     /// <summary>Оценка лага из ActiveMessageCount очереди/подписки — для метрики consumer.lag.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;

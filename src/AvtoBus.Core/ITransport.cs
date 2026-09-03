@@ -20,6 +20,22 @@ public enum DestinationKind
     Topic,
 }
 
+/// <summary>
+/// Канонические имена встроенных транспортов. Строковые литералы вместо констант —
+/// опечатка в имени транспорта обнаруживается только в рантайме.
+/// </summary>
+public static class TransportNames
+{
+    public const string InMemory = "inmemory";
+    public const string Local = "local";
+    public const string RabbitMq = "rabbitmq";
+    public const string Kafka = "kafka";
+    public const string Nats = "nats";
+    public const string Redis = "redis";
+    public const string Sql = "sql";
+    public const string AzureServiceBus = "asb";
+}
+
 /// <summary>Что именно слушает консьюмер.</summary>
 /// <param name="Destination">Очередь или топик.</param>
 /// <param name="ConsumerGroup">

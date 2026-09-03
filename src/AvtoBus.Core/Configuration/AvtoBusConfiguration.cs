@@ -14,7 +14,7 @@ public sealed class AvtoBusConfiguration
     public string ServiceName { get; set; } = "avtobus";
 
     /// <summary>Имя транспорта по умолчанию (должен быть зарегистрирован в этом процессе).</summary>
-    public string DefaultTransport { get; set; } = "inmemory";
+    public string DefaultTransport { get; set; } = TransportNames.InMemory;
 
     public int CircuitBreakerThreshold { get; set; }
 

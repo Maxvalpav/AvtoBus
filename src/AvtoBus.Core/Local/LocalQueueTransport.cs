@@ -34,7 +34,7 @@ public sealed class LocalQueueTransport : ITransport, AvtoBus.Observability.IQue
             _queues[queue.Name] = new LocalQueue(queue.Name, queue.Capacity, _time);
     }
 
-    public string Name => "local";
+    public string Name => TransportNames.Local;
 
     /// <summary>Глубина всех локальных очередей — для метрики <c>avtobus.queue.depth</c> (идея 94).</summary>
     public IReadOnlyDictionary<string, int> QueueDepths

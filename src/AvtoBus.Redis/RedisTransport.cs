@@ -46,7 +46,7 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         _db = _redis.GetDatabase();
     }
 
-    public string Name => "redis";
+    public string Name => TransportNames.Redis;
 
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
 

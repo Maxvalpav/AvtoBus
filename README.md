@@ -14,6 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="global.json"><img src="https://img.shields.io/badge/.NET-10.0-purple" alt=".NET 10"></a>
   <a href="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml"><img src="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/Maxvalpav/AvtoBus"><img src="https://codecov.io/gh/Maxvalpav/AvtoBus/branch/main/graph/badge.svg" alt="Coverage"></a>
   <img src="https://img.shields.io/badge/transports-7-green" alt="7 transports">
   <img src="https://img.shields.io/badge/tests-370+-brightgreen" alt="tests">
 </p>
@@ -69,40 +70,40 @@ public static class OrderHandlers
 
 ## 📦 Проекты
 
-| Пакет | Назначение |
-|---|---|
-| `AvtoBus` | метапакет: Core + InMemory + JSON — единая точка входа |
-| `AvtoBus.Templates` | шаблоны проектов: `dotnet new avtobus-worker`, `dotnet new avtobus-webapi` |
-| `AvtoBus.Core` | ядро: конверт, пайплайн, recoverability, метрики |
-| `AvtoBus.InMemory` | in-memory транспорт |
-| `AvtoBus.RabbitMq` | RabbitMQ-транспорт: quorum queues, stream-топики, publisher confirms, DLQ |
-| `AvtoBus.Outbox.EfCore` | транзакционный outbox на EF Core |
-| `AvtoBus.Sagas` | саги и durable execution |
-| `AvtoBus.Scheduling` | cron, отложенные сообщения, leader election |
-| `AvtoBus.Kafka` | Kafka-транспорт: exactly-once, партиции по ключу, back-pressure |
-| `AvtoBus.Nats` | NATS/JetStream-транспорт: durable push-consumers, queue groups, KV |
-| `AvtoBus.Redis` | Redis Streams-транспорт: consumer groups, XAUTOCLAIM |
-| `AvtoBus.Sql` | SQL-транспорт: PostgreSQL таблица-очередь, SKIP LOCKED + LISTEN/NOTIFY |
-| `AvtoBus.AzureServiceBus` | Azure Service Bus-транспорт: сессии, scheduled enqueue, lock renew |
-| `AvtoBus.EventSourcing` | Event Store, агрегаты, проекции, snapshots, crypto-shredding + GDPR, blue/green реплей |
-| `AvtoBus.Security` | подписи, шифрование, авторизация, PII |
-| `AvtoBus.Multitenancy` | мультитенантность: уровни A/B/C, data-residency guard, per-tenant квоты |
-| `AvtoBus.Generators` | source generator |
-| `AvtoBus.Analyzers` | Roslyn-анализаторы и code-fixes (AVB001-060) |
-| `AvtoBus.AsyncApi` | генератор AsyncAPI 3.0 из модели шины |
-| `AvtoBus.EventCatalog` | словарь доменных событий: статический HTML-сайт и JSON-каталог |
-| `AvtoBus.Cli` | dotnet tool `avtobus`: doctor, contracts, es explain, config, dlq, completion |
-| `AvtoBus.Aspire` | интеграция с .NET Aspire |
-| `AvtoBus.Dashboard` | встраиваемый дашборд: обзор, DLQ (за auth-политикой, опасные действия в проде запрещены) |
-| `AvtoBus.Bridge` | мост между транспортами (например, Kafka ↔ RabbitMQ) |
-| `AvtoBus.Abstractions` | базовые абстракции шины |
-| `AvtoBus.Streams` | стрим-процессинг: окна, join'ы, state stores |
-| `AvtoBus.Workflow` | durable workflow: таймеры, активности, сигналы |
-| `AvtoBus.Durability.PostgreSql` | durability-примитивы на PostgreSQL |
-| `AvtoBus.SchemaRegistry` | реестр схем контрактов |
-| `AvtoBus.Serialization.MessagePack` | MessagePack-сериализатор |
-| `AvtoBus.Serialization.Protobuf` | Protobuf-сериализатор |
-| `AvtoBus.Testing` | тест-харнесс |
+| Пакет | Назначение | Доставка |
+|---|---|---|
+| `AvtoBus` | метапакет: Core + InMemory + JSON — единая точка входа | — |
+| `AvtoBus.Templates` | шаблоны проектов: `dotnet new avtobus-worker`, `dotnet new avtobus-webapi` | — |
+| `AvtoBus.Core` | ядро: конверт, пайплайн, recoverability, метрики | — |
+| `AvtoBus.InMemory` | in-memory транспорт | at-least-once в процессе |
+| `AvtoBus.RabbitMq` | RabbitMQ-транспорт: quorum queues, stream-топики, publisher confirms, DLQ | at-least-once, порядок в очереди |
+| `AvtoBus.Outbox.EfCore` | транзакционный outbox на EF Core | атомарность с бизнес-транзакцией |
+| `AvtoBus.Sagas` | саги и durable execution | — |
+| `AvtoBus.Scheduling` | cron, отложенные сообщения, leader election | — |
+| `AvtoBus.Kafka` | Kafka-транспорт: партиции по ключу, back-pressure | at-least-once; exactly-once опционально (транзакции) |
+| `AvtoBus.Nats` | NATS/JetStream-транспорт: durable push-consumers, queue groups, KV | at-least-once |
+| `AvtoBus.Redis` | Redis Streams-транспорт: consumer groups, XAUTOCLAIM | at-least-once |
+| `AvtoBus.Sql` | SQL-транспорт: PostgreSQL таблица-очередь, SKIP LOCKED + LISTEN/NOTIFY | at-least-once |
+| `AvtoBus.AzureServiceBus` | Azure Service Bus-транспорт: сессии, scheduled enqueue, lock renew | at-least-once (PeekLock) |
+| `AvtoBus.EventSourcing` | Event Store, агрегаты, проекции, snapshots, crypto-shredding + GDPR, blue/green реплей | — |
+| `AvtoBus.Security` | подписи, шифрование, авторизация, PII | — |
+| `AvtoBus.Multitenancy` | мультитенантность: уровни A/B/C, data-residency guard, per-tenant квоты | — |
+| `AvtoBus.Generators` | source generator | — |
+| `AvtoBus.Analyzers` | Roslyn-анализаторы и code-fixes (AVB001-060) | — |
+| `AvtoBus.AsyncApi` | генератор AsyncAPI 3.0 из модели шины | — |
+| `AvtoBus.EventCatalog` | словарь доменных событий: статический HTML-сайт и JSON-каталог | — |
+| `AvtoBus.Cli` | dotnet tool `avtobus`: doctor, contracts, es explain, config, dlq, completion | — |
+| `AvtoBus.Aspire` | интеграция с .NET Aspire | — |
+| `AvtoBus.Dashboard` | встраиваемый дашборд: обзор, DLQ (за auth-политикой, опасные действия в проде запрещены) | — |
+| `AvtoBus.Bridge` | мост между транспортами (например, Kafka ↔ RabbitMQ) | at-least-once |
+| `AvtoBus.Abstractions` | базовые абстракции шины | — |
+| `AvtoBus.Streams` | стрим-процессинг: окна, join'ы, state stores | — |
+| `AvtoBus.Workflow` | durable workflow: таймеры, активности, сигналы | — |
+| `AvtoBus.Durability.PostgreSql` | durability-примитивы на PostgreSQL | — |
+| `AvtoBus.SchemaRegistry` | реестр схем контрактов | — |
+| `AvtoBus.Serialization.MessagePack` | MessagePack-сериализатор | — |
+| `AvtoBus.Serialization.Protobuf` | Protobuf-сериализатор | — |
+| `AvtoBus.Testing` | тест-харнесс | — |
 
 ## 🚚 Примеры
 

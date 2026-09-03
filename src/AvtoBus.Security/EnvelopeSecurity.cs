@@ -59,12 +59,17 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
         if (_options.EncryptBody)
         {
+            // AAD = MessageId: шифротекст привязан к конверту, перестановка тела
+            // в другое сообщение ломает расшифровку даже без проверки подписи.
+            Span<byte> aad = stackalloc byte[16];
+            envelope.MessageId.TryWriteBytes(aad);
             prepared = prepared with
             {
                 Body = BodyEncryptor.Encrypt(
                     envelope.Body.Span,
                     key.EncryptionKey,
-                    out var nonceBase64),
+                    out var nonceBase64,
+                    aad),
             };
             prepared = prepared.WithHeader(BodyEncryptor.NonceHeader, nonceBase64);
         }
@@ -119,7 +124,9 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
             {
                 try
                 {
-                    var plain = BodyEncryptor.Decrypt(envelope.Body.Span, keys.EncryptionKey, nonce);
+                    Span<byte> aad = stackalloc byte[16];
+                    envelope.MessageId.TryWriteBytes(aad);
+                    var plain = BodyEncryptor.Decrypt(envelope.Body.Span, keys.EncryptionKey, nonce, aad);
                     // Strip nonce header after successful decrypt to avoid header leak
                     var strippedHeaders = envelope.Headers.Where(kv => kv.Key != BodyEncryptor.NonceHeader)
                         .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);

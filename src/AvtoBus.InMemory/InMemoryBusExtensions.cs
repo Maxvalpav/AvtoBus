@@ -15,7 +15,7 @@ public static class InMemoryBusExtensions
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<InMemoryTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IQueueDepthProvider>(sp =>
             sp.GetRequiredService<InMemoryTransport>());
-        bus.TrySetDefaultTransport("inmemory");
+        bus.TrySetDefaultTransport(TransportNames.InMemory);
         return bus;
     }
 }

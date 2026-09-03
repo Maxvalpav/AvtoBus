@@ -8,7 +8,7 @@ public sealed class CliConfig
     public string? DefaultAssembly { get; set; }
 
     public string? ConnectionString { get; set; }
-    public string? Transport { get; set; } = "inmemory";
+    public string? Transport { get; set; } = TransportNames.InMemory;
 
     public static string ConfigPath
     {

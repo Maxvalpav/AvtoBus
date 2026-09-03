@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using AvtoBus.Observability;
 using Npgsql;
 
+
 namespace AvtoBus.Sql;
+
 
 /// <summary>
 /// SQL-транспорт (идеи 66–67): PostgreSQL таблица-очередь.
@@ -42,7 +44,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         _dataSource = builder.Build();
     }
 
-    public string Name => "sql";
+    public string Name => TransportNames.Sql;
 
     /// <summary>Приближение лага: число доставленных, но не подтверждённых сообщений.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
@@ -458,60 +460,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>
-    /// Сообщение из SQL-очереди. Ack = DELETE; Reject(requeue) = сброс claim + visible_at=now
-    /// + инкремент DeliveryAttempt (пере-сериализация конверта); Reject(без requeue) = DELETE
-    /// (вне доставки; DLQ — на уровне ядра).
-    /// </summary>
-    private sealed class SqlMessage : ITransportMessage
-    {
-        private readonly SqlTransport _transport;
-        private readonly string _table;
-        private readonly long _id;
-        private readonly string _sourceName;
-        private int _settled;
-
-        public SqlMessage(SqlTransport transport, string table, long id, Envelope envelope, string sourceName)
-        {
-            _transport = transport;
-            _table = table;
-            _id = id;
-            _sourceName = sourceName;
-            Envelope = envelope;
-        }
-
-        public Envelope Envelope { get; }
-
-        /// <summary>Логическое имя очереди: повторная отправка в неё не дублирует префикс.</summary>
-        public TransportDestination Source => TransportDestination.Queue(_sourceName);
-
-        public async ValueTask AcknowledgeAsync(CancellationToken ct = default)
-        {
-            if (Interlocked.Exchange(ref _settled, 1) == 1)
-                return;
-
-            await _transport.ExecuteAsync($"DELETE FROM {_table} WHERE id = @id", _id, ct).ConfigureAwait(false);
-        }
-
-        public async ValueTask RejectAsync(bool requeue, CancellationToken ct = default)
-        {
-            if (Interlocked.Exchange(ref _settled, 1) == 1)
-                return;
-
-            if (requeue)
-            {
-                // Requeue: снимаем claim и делаем видимым снова; попытка инкрементируется.
-                var blob = SqlEnvelopeSerializer.ToBlob(Envelope.NextAttempt());
-                await _transport.ExecuteRequeueAsync(_table, _id, blob, ct).ConfigureAwait(false);
-            }
-            else
-            {
-                await _transport.ExecuteAsync($"DELETE FROM {_table} WHERE id = @id", _id, ct).ConfigureAwait(false);
-            }
-        }
-    }
-
-    private async ValueTask ExecuteAsync(string sql, long id, CancellationToken ct)
+    internal async ValueTask ExecuteAsync(string sql, long id, CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(sql, connection);
@@ -519,7 +468,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    private async ValueTask ExecuteRequeueAsync(string table, long id, byte[] blob, CancellationToken ct)
+    internal async ValueTask ExecuteRequeueAsync(string table, long id, byte[] blob, CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(

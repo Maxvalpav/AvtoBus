@@ -30,7 +30,7 @@ public sealed class BusOptions
     public Dictionary<Type, ConsumerSettings> Consumers { get; } = [];
 
     /// <summary>Имя транспорта по умолчанию.</summary>
-    public string DefaultTransport { get; set; } = "inmemory";
+    public string DefaultTransport { get; set; } = TransportNames.InMemory;
 
     /// <summary>Группа консьюмеров по умолчанию — обычно имя сервиса.</summary>
     public string ServiceName { get; set; } = "avtobus";

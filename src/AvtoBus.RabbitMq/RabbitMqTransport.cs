@@ -75,7 +75,7 @@ public sealed class RabbitMqTransport : ITransport, AvtoBus.Observability.IQueue
                 outstandingPublisherConfirmationsRateLimiter: null,
                 consumerDispatchConcurrency: null));
 
-    public string Name => "rabbitmq";
+    public string Name => TransportNames.RabbitMq;
     public IReadOnlyDictionary<string, int> QueueDepths => _queueDepths;
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
 

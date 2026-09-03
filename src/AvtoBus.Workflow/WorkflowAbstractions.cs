@@ -176,7 +176,7 @@ public sealed class WorkflowInstanceRunner
             if (scheduled is not null)
             {
                 var env = new AvtoEnvelope { MessageId = Guid.NewGuid(), MessageType = "WorkflowTimerFired", SchemaName = "workflow.timer-fired", SchemaVersion = 1, CreatedAt = clock.GetUtcNow(), Body = BitConverter.GetBytes(delay.Ticks), Headers = new() };
-                await scheduled.AddAsync([new ScheduledRecord { Id = Guid.NewGuid(), Envelope = env, Destination = $"workflow:{workflowId}", Transport = "inmemory", ScheduledAt = clock.GetUtcNow() + delay }], ct).ConfigureAwait(false);
+                await scheduled.AddAsync([new ScheduledRecord { Id = Guid.NewGuid(), Envelope = env, Destination = $"workflow:{workflowId}", Transport = TransportNames.InMemory, ScheduledAt = clock.GetUtcNow() + delay }], ct).ConfigureAwait(false);
             }
             else
             {

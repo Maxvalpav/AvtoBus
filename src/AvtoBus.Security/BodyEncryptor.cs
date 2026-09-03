@@ -5,9 +5,9 @@ using AvtoBus;
 namespace AvtoBus.Security;
 
 /// <summary>
-/// AES-256-GCM шифрование тела конверта (идея 455). Не имеет аутентификации само по себе —
-/// нонс и ciphertext подписываются HMAC'ом вместе с остальным конвертом (см. EnvelopeSigner),
-/// так что целостность гарантируется на уровне подписи.
+/// AES-256-GCM шифрование тела конверта (идея 455). Привязка к сообщению — через
+/// associated data (по умолчанию MessageId): шифротекст нельзя переставить в другой
+/// конверт. Дополнительно ciphertext подписывается HMAC вместе с остальным конвертом.
 /// </summary>
 internal static class BodyEncryptor
 {
@@ -16,7 +16,9 @@ internal static class BodyEncryptor
 
     public static bool IsEncrypted(Envelope envelope) => envelope.Header(NonceHeader) is not null;
 
-    public static ReadOnlyMemory<byte> Encrypt(ReadOnlySpan<byte> body, ReadOnlySpan<byte> key, out string nonceBase64)
+    public static ReadOnlyMemory<byte> Encrypt(
+        ReadOnlySpan<byte> body, ReadOnlySpan<byte> key, out string nonceBase64,
+        ReadOnlySpan<byte> associatedData = default)
     {
         if (key.Length != 32) throw new ArgumentException($"Encryption key must be 32 bytes, got {key.Length}", nameof(key));
         var nonce = RandomNumberGenerator.GetBytes(12);
@@ -25,18 +27,21 @@ internal static class BodyEncryptor
 
         using (var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize))
         {
-            aes.Encrypt(nonce, body, ciphertext, tag, null);
+            aes.Encrypt(nonce, body, ciphertext, tag, associatedData);
         }
 
         var payload = new byte[ciphertext.Length + tag.Length];
         ciphertext.CopyTo(payload, 0);
         tag.CopyTo(payload, ciphertext.Length);
+        CryptographicOperations.ZeroMemory(ciphertext);
 
         nonceBase64 = Convert.ToBase64String(nonce);
         return payload;
     }
 
-    public static ReadOnlyMemory<byte> Decrypt(ReadOnlySpan<byte> payload, ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce)
+    public static ReadOnlyMemory<byte> Decrypt(
+        ReadOnlySpan<byte> payload, ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce,
+        ReadOnlySpan<byte> associatedData = default)
     {
         if (key.Length != 32) throw new ArgumentException($"Encryption key must be 32 bytes, got {key.Length}", nameof(key));
         if (nonce.Length != 12) throw new ArgumentException($"Nonce must be 12 bytes, got {nonce.Length}", nameof(nonce));
@@ -46,21 +51,24 @@ internal static class BodyEncryptor
         var raw = new byte[plaintextLength];
 
         using var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize);
-        aes.Decrypt(nonce, payload[..^tagLength], payload[^tagLength..], raw, null);
+        aes.Decrypt(nonce, payload[..^tagLength], payload[^tagLength..], raw, associatedData);
 
         return raw;
     }
 
-    public static bool TryReadNonce(Envelope envelope, out byte[] nonce)
+    public static bool TryReadNonce(Envelope envelope, out byte[]? nonce)
     {
-        nonce = [];
+        nonce = null;
         var header = envelope.Header(NonceHeader);
         if (header is null)
             return false;
         try
         {
-            nonce = Convert.FromBase64String(header);
-            return nonce.Length == 12;
+            var decoded = Convert.FromBase64String(header);
+            if (decoded.Length != 12)
+                return false;
+            nonce = decoded;
+            return true;
         }
         catch (FormatException)
         {

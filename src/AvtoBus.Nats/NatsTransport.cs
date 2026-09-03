@@ -50,7 +50,7 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
         _js = js;
     }
 
-    public string Name => "nats";
+    public string Name => TransportNames.Nats;
 
     /// <summary>Оценка лага группы (из ConsumerInfo.NumPending) — для метрики consumer.lag.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
