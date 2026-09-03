@@ -4,9 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Canvas;
 
 /// <summary>
-/// Canvas как в Celery (Python) `chain | group | chord` и BullMQ (JS) `Flows` + Temporal child-workflows.
-/// Позволяет компоновать сообщения как конвейер: chain — последовательно, group — параллельно, chord — group + callback.
-/// Порт идей: Celery canvas (chain/group/chord), BullMQ flows (parent→children), River/Machinery (Go).
+/// Canvas: компоновка сообщений как конвейер: chain — последовательно, group — параллельно, chord — group + callback.
 /// </summary>
 public sealed class CanvasChain
 {
@@ -68,8 +66,8 @@ public sealed class CanvasGroup
 }
 
 /// <summary>
-/// Chord как в Celery: group + callback когда все задачи группы завершены.
-/// Реализация через counter в IChordStore (in-memory). Аналог BullMQ Flows `parent` + `children`.
+/// Chord: group + callback когда все задачи группы завершены.
+/// Реализация через counter в IChordStore (in-memory).
 /// </summary>
 public sealed class CanvasChord
 {
@@ -131,7 +129,7 @@ public sealed class InMemoryChordStore : IChordStore
         => ValueTask.FromResult(_map.TryGetValue(chordId, out var e) && e.Remaining <= 0 ? ((object, Type)?)(e.Callback, e.Type) : null);
 }
 
-/// <summary>Фасад как Celery `canvas`.</summary>
+/// <summary>Фасад компоновки: chain / group / chord.</summary>
 public static class Canvas
 {
     public static CanvasChain Chain() => new();
@@ -143,7 +141,6 @@ public static class Canvas
 
 /// <summary>
 /// Middleware который после успешной обработки проверяет заголовок `avtobus.canvas.chain` и отправляет следующий шаг.
-/// Аналог Celery chain execution + BullMQ flow parent.
 /// </summary>
 public sealed class CanvasMiddleware : AvtoBus.Pipeline.IBusMiddleware
 {

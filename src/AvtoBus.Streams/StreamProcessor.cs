@@ -84,7 +84,7 @@ public sealed class WindowedAggregate<TValue>(
 }
 
 /// <summary>
-/// Session window как в Kafka Streams (Java) `SessionWindows.with(gap)` и Faust (Python) `hopping_window`.
+/// Session window: сессии с gap-интервалом между событиями.
 /// Группирует записи по ключу пока gap между событиями &lt; inactivityGap; новая сессия если пауза &gt; gap.
 /// Аналог также Apache Flink session windows.
 /// </summary>
@@ -123,9 +123,7 @@ public sealed class Session<TValue>(string key, DateTimeOffset start, DateTimeOf
 }
 
 /// <summary>
-/// KStream-KTable join как в Kafka Streams `KStream.join(KTable)` и Akka Streams `zipWith`.
-/// Соединяет два потока по ключу внутри окна `joinWindow`. Использует state store для правой стороны (таблица).
-/// Аналог Faust `stream.join(table)` и ZIO `ZStream.zip`.
+/// Join потока со справочником: соединяет два потока по ключу внутри окна `joinWindow`. Использует state store для правой стороны (таблица).
 /// </summary>
 public sealed class StreamJoinProcessor<TLeft, TRight, TOut> : IStreamProcessor<TLeft, TOut>
 {

@@ -30,12 +30,21 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
             return;
         }
 
+        // Pre-check до вызова хендлера: без него дубликат выполнял хендлер,
+        // а уникальный ключ срабатывал лишь на SaveChanges — уже после обработки.
+        var messageId = ctx.Envelope.MessageId;
+        var seen = await db.Set<InboxRecord>().AnyAsync(
+            r => r.MessageId == messageId && r.ConsumerId == consumerId,
+            ctx.CancellationToken).ConfigureAwait(false);
+        if (seen)
+            return;
+
         // Добавляем запись, но не сохраняем отдельно — сохранится вместе с бизнес-данными
         // в той же транзакции (один SaveChanges в конце обработки).
         var timeProvider = ctx.Services.GetService<TimeProvider>() ?? TimeProvider.System;
         db.Set<InboxRecord>().Add(new InboxRecord
         {
-            MessageId = ctx.Envelope.MessageId,
+            MessageId = messageId,
             ConsumerId = consumerId,
             ProcessedAt = timeProvider.GetUtcNow().UtcDateTime,
         });

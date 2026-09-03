@@ -3,9 +3,9 @@ using AvtoBus.Abstractions;
 namespace AvtoBus.Workflow;
 
 /// <summary>
-/// Temporal Queries/Updates + Schedules порт (Go/Java): синхронный запрос состояния workflow + durable cron.
-/// Query — read-only `workflow.Query("balance")` без изменения истории. Update — валидируемый сигнал с ответом.
-/// Schedule — cron с backfill и jitter как у Temporal `ScheduleSpec`, в отличие от `CronRegistry` без backfill.
+/// Запросы/обновления workflow и расписания: синхронный запрос состояния workflow + durable cron.
+/// Query — read-only запрос без изменения истории. Update — валидируемый сигнал с ответом.
+/// Schedule — cron с backfill и jitter, в отличие от `CronRegistry` без backfill.
 /// </summary>
 public interface IWorkflowQueryable
 {

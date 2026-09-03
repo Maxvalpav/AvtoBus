@@ -4,9 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Actors;
 
 /// <summary>
-/// Dapr Virtual Actors + Reminders порт (Go/.NET): actor per entity с single-threaded mailbox, timer/reminder.
+/// Виртуальные акторы с reminders: actor per entity с single-threaded mailbox, timer/reminder.
 /// Активируется по `ActorId`, деактивируется после idle, состояние в `IActorStore`. Напоминания — durable таймеры.
-/// Аналог: Dapr `Actor`, Orleans `Grain`, Akka `ShardedActor`.
 /// </summary>
 public sealed class ActorId(string id)
 {

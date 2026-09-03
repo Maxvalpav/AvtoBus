@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using AvtoBus.Configuration;
 
 namespace AvtoBus.Outbox.EfCore;
@@ -22,6 +23,11 @@ public static class OutboxRegistration
         bus.Services.AddSingleton<IOutboxSignal, ChannelOutboxSignal>();
         bus.Services.AddSingleton<OutboxSaveChangesInterceptor>();
         bus.Services.AddSingleton<IEnvelopeSerializer, JsonEnvelopeSerializer>();
+        // Relay/cleanup резолвят базовый DbContext: маппим его на TDb, иначе фоновые
+        // задачи падают с InvalidOperationException, хост отменяет старт и SchemaMigrator
+        // получает отменённый токен (загадочный OperationCanceledException вместо причины).
+        // TryAdd — явный маппинг пользователя побеждает.
+        bus.Services.TryAddScoped<DbContext>(sp => sp.GetRequiredService<TDb>());
         // Один инстанс на скоуп: и прямой доступ (IOutbox), и синк сессии (IOutboxSink) — один объект.
         bus.Services.AddScoped<EfCoreOutbox<TDb>>();
         bus.Services.AddScoped<IOutbox>(sp => sp.GetRequiredService<EfCoreOutbox<TDb>>());

@@ -1,7 +1,7 @@
 namespace AvtoBus;
 
 /// <summary>
-/// Уровень 1 API: хендлер как класс. Явно и знакомо тем, кто пришёл с MassTransit/Rebus.
+/// Уровень 1 API: хендлер как класс. Явно и знакомо: один метод на одно сообщение.
 /// </summary>
 public interface IConsumer<T> where T : class
 {

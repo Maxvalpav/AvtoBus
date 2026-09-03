@@ -8,19 +8,18 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Runtime;
 
 /// <summary>
-/// Уникальная джоба как в Oban (Elixir), River (Go), Sidekiq Unique Jobs (Ruby).
-/// Предотвращает повторную постановку одинакового сообщения пока предыдущее ещё в очереди / recently done.
-/// Аналог: Oban `unique: [period: 60, fields: [:args, :queue]]`, River `UniqueOpts{ByArgs, ByQueue, Period}`, Sidekiq `until_executed`.
+/// Уникальная задача: предотвращает повторную постановку одинакового сообщения,
+/// пока предыдущее ещё в очереди / в окне уникальности.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = true)]
 public sealed class UniqueJobAttribute : Attribute
 {
-    /// <summary>Окно уникальности. По умолчанию 30 секунд как у River `period`.</summary>
+    /// <summary>Окно уникальности. По умолчанию 30 секунд.</summary>
     public int PeriodSeconds { get; init; } = 30;
 
     public TimeSpan Period => TimeSpan.FromSeconds(PeriodSeconds);
 
-    /// <summary>Учитывать очередь/топик в ключе (Oban `fields: [:queue]`).</summary>
+    /// <summary>Учитывать очередь/топик в ключе уникальности.</summary>
     public bool ByQueue { get; init; } = true;
 
     /// <summary>Учитывать тело сообщения (args). false = только тип+очередь.</summary>
@@ -108,7 +107,7 @@ public static class UniqueKeyComputer
     {
         var prefix = attr.KeyPrefix ?? messageType.FullName ?? messageType.Name;
         if (!attr.ByArgs) return $"{prefix}::{destination}";
-        // хэш тела как у River ByArgs: stable json hash
+        // хэш тела: stable json hash
         var json = JsonSerializer.Serialize(message, messageType, new JsonSerializerOptions { WriteIndented = false });
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..16];
         return attr.ByQueue ? $"{prefix}::{destination}::{hash}" : $"{prefix}::{hash}";
@@ -134,7 +133,7 @@ public static class UniqueJobExtensions
         return bus;
     }
 
-    /// <summary>Явная опция per-message как у BullMQ `jobId` / River `UniqueOpts`.</summary>
+    /// <summary>Явный ключ уникальности per-message для дедупликации.</summary>
     public static SendOptions WithUniqueKey(this SendOptions opts, string key, TimeSpan? period = null)
     {
         opts.WithHeader("avtobus.unique-key", key);

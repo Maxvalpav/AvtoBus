@@ -47,7 +47,7 @@ public abstract class MessageOptions
     public TimeSpan? TimeToLive { get; set; }
     public DateTimeOffset? DeliverAt { get; set; }
 
-    /// <summary>Приоритет SQS FIFO / RabbitMQ x-max-priority (0-10, 10 = максимум). WFQ учитывает вес тенанта.</summary>
+    /// <summary>Приоритет очереди с поддержкой приоритетов (0-10, 10 = максимум). WFQ учитывает вес тенанта.</summary>
     public int Priority { get; set; }
 
     /// <summary>Явное назначение вместо вычисленного по правилам маршрутизации.</summary>

@@ -3,8 +3,7 @@ using System.Security.Cryptography;
 namespace AvtoBus.Security;
 
 /// <summary>
-/// Фича 6 по порядку — KMS (как AWS KMS / Azure KeyVault) для ротации per-field ключей.
-/// Мощнее Rebus (body only) и NServiceBus (property) — у нас KMS + per-field AES-GCM.
+/// KMS для ротации per-field ключей: провайдер ключей + per-field AES-GCM.
 /// </summary>
 public interface IKmsProvider
 {

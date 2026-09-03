@@ -4,10 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Pipeline;
 
 /// <summary>
-/// Redpanda WASM Transforms порт: per-record UDF на WASM, hot-reload без деплоя.
-/// Tenant загружает `filter.wasm`/`map.wasm` (Rust/Go/JS -> WASM) — шина вызывает его sandbox'ом на каждом сообщении.
+/// WASM-трансформации записей: per-record UDF на WASM, hot-reload без деплоя.
+/// Tenant загружает `filter.wasm`/`map.wasm` — шина вызывает его sandbox'ом на каждом сообщении.
 /// В .NET реализация через Wasmtime.NET (опционально); стаб — `Func&lt;byte[],byte[]&gt;` для тестов без нативной зависимости.
-/// Аналог: Redpanda `rpk transform create`, Pulsar Functions.
 /// </summary>
 public sealed class WasmOptions
 {

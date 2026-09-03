@@ -24,7 +24,7 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
         if (message is not IMessage proto)
             throw new NotSupportedException(
                 $"Тип {type.Name} не является Google.Protobuf IMessage. Контракты для protobuf " +
-                "генерируются из .proto-файлов (protoc / Grpc.Tools).");
+                "генерируются из .proto-файлов компилятором protoc.");
 
         // Write via byte array (CodedOutputStream requires byte[] in this version)
         var bytes = proto.ToByteArray();
@@ -36,7 +36,7 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
         if (!typeof(IMessage).IsAssignableFrom(type))
             throw new NotSupportedException(
                 $"Тип {type.Name} не является Google.Protobuf IMessage. Контракты для protobuf " +
-                "генерируются из .proto-файлов (protoc / Grpc.Tools).");
+                "генерируются из .proto-файлов компилятором protoc.");
 
         // Сгенерированные protoc-типы имеют статический Parser — используем его.
         var parser = FindParser(type);

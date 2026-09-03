@@ -1,9 +1,8 @@
 namespace AvtoBus.Workflow;
 
 /// <summary>
-/// Trigger.dev / Inngest `step.invoke` порт (JS): durable вызов дочернего workflow с возвратом результата.
+/// Durable вызов дочернего workflow с возвратом результата.
 /// В отличие от `Canvas.Chain` (fire-and-forget), `Invoke` ждет завершения child и возвращает `TOut` в parent, переживая рестарт.
-/// Аналог: Trigger.dev `io.runTask`, Inngest `step.invoke`, Temporal `ChildWorkflow`.
 /// </summary>
 public static class DurableInvokeExtensions
 {

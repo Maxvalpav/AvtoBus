@@ -5,9 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Hangfire;
 
 /// <summary>
-/// Hangfire/JobRunr порт: `BackgroundJob.Enqueue(() => svc.Method(arg))` без классов сообщений.
+/// Фоновые задачи в стиле expression-API: `BackgroundJob.Enqueue(() => svc.Method(arg))` без классов сообщений.
 /// Захватывает expression, сериализует вызов как сообщение `HangfireJobEnvelope`, шлет через IBus.
-/// Продолжения: `ContinueWith`, батчи: `BatchJob.StartNew`. Аналог Hangfire Dashboard.
+/// Продолжения: `ContinueWith`, батчи: `BatchJob.StartNew`.
 /// </summary>
 public static class BackgroundJob
 {
@@ -43,7 +43,7 @@ public static class BackgroundJob
         // а JobId возвращался до persist (потеря при crash). Теперь наблюдаем задачу:
         // в sync-фасаде исключение отправки не глотаем молча, а фиксируем в UnobservedGuard.
         _ = _bus.SendAsync(job, opts).AsTask().ContinueWith(
-            t => System.Diagnostics.Trace.TraceWarning($"AvtoBus Hangfire send failed for job {job.JobId}: {t.Exception?.GetBaseException().Message}"),
+            t => System.Diagnostics.Trace.TraceWarning($"AvtoBus background send failed for job {job.JobId}: {t.Exception?.GetBaseException().Message}"),
             TaskContinuationOptions.OnlyOnFaulted);
         return job.JobId;
     }

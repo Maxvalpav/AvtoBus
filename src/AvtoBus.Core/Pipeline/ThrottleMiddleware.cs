@@ -3,9 +3,7 @@ using System.Collections.Concurrent;
 namespace AvtoBus.Pipeline;
 
 /// <summary>
-/// Throttle как в Watermill (Go) `Throttle{messages, interval}` и Broadway (Elixir) `rate_limiting: [allowed_messages, interval]`.
-/// Ограничивает число сообщений в единицу времени (token bucket). При превышении — defer на interval.
-/// Также известен как BullMQ `limiter: { max, duration }` и Sidekiq throttle gem.
+/// Throttle: ограничивает число сообщений в единицу времени (token bucket). При превышении — defer на interval.
 /// </summary>
 public sealed class ThrottleMiddleware : IBusMiddleware
 {
@@ -35,7 +33,7 @@ public sealed class ThrottleMiddleware : IBusMiddleware
 
             if (_window.Count >= _maxMessages)
             {
-                // как в Broadway: back-pressure -> defer, не drop
+                // back-pressure -> defer, не drop
                 var oldest = _window.TryPeek(out var o) ? o : now;
                 var delay = _interval - (now - oldest);
                 if (delay < TimeSpan.FromMilliseconds(50)) delay = TimeSpan.FromMilliseconds(50);
@@ -49,18 +47,17 @@ public sealed class ThrottleMiddleware : IBusMiddleware
         if (defer.HasValue)
         {
             await context.DeferAsync(defer.Value).ConfigureAwait(false);
-            return; // не вызываем next — back-pressure (как Watermill Throttle)
+            return; // не вызываем next — back-pressure через defer
         }
         await next(context).ConfigureAwait(false);
     }
 }
 
 /// <summary>
-/// Broadway-style batcher: копит сообщения одного типа до BatchSize или BatchTimeout, потом флашит.
+/// Пакетный middleware: копит сообщения одного типа до BatchSize или BatchTimeout, потом флашит.
 /// В AvtoBus уже есть ConsumerSettings.BatchSize/BatchTimeout + IMessageBatch, этот middleware — явная альтернатива
-/// для транспортов без нативной батч-поддержки (InMemory, Redis). Подражает Broadway `batchers: [{batch_size, batch_timeout}]`
-/// и Kafka Streams `suppress/untilWindowCloses`.
-/// Примечание: ConsumerHost читает BatchSize нативно; этот middleware — дополнительный broadway-совместимый батчер
+/// для транспортов без нативной батч-поддержки (InMemory, Redis).
+/// Примечание: ConsumerHost читает BatchSize нативно; этот middleware — дополнительный батчер
 /// для транспортов без нативной батч-поддержки (InMemory, Redis) — буферизует до batchSize/timeout.
 /// </summary>
 public sealed class BroadwayBatchMiddleware : IBusMiddleware
@@ -120,7 +117,7 @@ public sealed class BroadwayBatchMiddleware : IBusMiddleware
 
 public static class ThrottleExtensions
 {
-    /// <summary>Watermill/ Broadway throttle: не более N сообщений за interval.</summary>
+    /// <summary>Throttle: не более N сообщений за interval.</summary>
     public static AvtoBus.Configuration.BusConfigurator UseThrottle(this AvtoBus.Configuration.BusConfigurator bus, int maxMessages, TimeSpan interval)
     {
         var mw = new ThrottleMiddleware(maxMessages, interval);
@@ -128,7 +125,7 @@ public static class ThrottleExtensions
         return bus;
     }
 
-    /// <summary>Broadway batcher: копит до batchSize или batchTimeout.</summary>
+    /// <summary>Пакетный middleware: копит до batchSize или batchTimeout.</summary>
     public static AvtoBus.Configuration.BusConfigurator UseBroadwayBatching(this AvtoBus.Configuration.BusConfigurator bus, int batchSize, TimeSpan batchTimeout)
     {
         var mw = new BroadwayBatchMiddleware(batchSize, batchTimeout);

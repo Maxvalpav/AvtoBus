@@ -7,10 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace AvtoBus.Runtime;
 
 /// <summary>
-/// Debezium Outbox Event Router (Java) порт: CDC через PG logical decoding вместо polling.
-/// Читает WAL слот `avtobus_slot` (pgoutput/wal2json) -> десериализует `avtobus_outbox` строки -> публикует в транспорт.
+/// CDC-релей outbox: читает WAL-слот через logical decoding вместо polling.
+/// Читает слот `avtobus_slot` -> десериализует `avtobus_outbox` строки -> публикует в транспорт.
 /// Устраняет главный минус polling-релея: задержка 0, нет `SELECT FOR UPDATE`, видит ROLLBACK.
-/// Аналог: debezium `outbox.event.router` SMT + `pg_logical_slot_get_changes`.
 /// Fallback: если PG без logical replication — прозрачно переключается на polling `OutboxRelay`.
 /// </summary>
 public sealed class DebeziumOptions

@@ -95,8 +95,7 @@ public sealed class AvtoBusClient(
     {
         if (options.IsReadOnly)
             throw new InvalidOperationException($"AvtoBus readonly: {options.ReadOnlyReason} — публикация {messageType.Name} заблокирована (идея 497).");
-        // UniqueJob producer-side check (Oban/River/Sidekiq – Elixir/Go/Ruby):
-        // не отправляем дубликат пока предыдущий ещё в окне уникальности.
+        // UniqueJob producer-side check: не отправляем дубликат пока предыдущий ещё в окне уникальности.
         if (uniqueStore is not null && parent is null)
         {
             var explicitKey = messageOptions?.Headers.TryGetValue("avtobus.unique-key", out var k) == true ? k : null;

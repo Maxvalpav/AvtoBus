@@ -16,7 +16,7 @@ public interface IWorkflowContext
     Task<T> ExecuteActivityAsync<T>(Func<Task<T>> activity, ActivityOptions? options = null);
     void ContinueAsNew(object input);
 
-    // Inngest (JS) `step.sleepUntil(date)` + Temporal (Go) `workflow.SleepUntil` + `AwaitWithTimeout`
+    // Шаг сна до даты + ожидание внешнего события с таймаутом
     Task SleepUntil(DateTimeOffset at, CancellationToken ct = default);
     Task<T> WaitForEventAsync<T>(string eventName, TimeSpan? timeout = null, CancellationToken ct = default);
     Task SendSignalAsync(string workflowId, string signalName, object payload, CancellationToken ct = default);

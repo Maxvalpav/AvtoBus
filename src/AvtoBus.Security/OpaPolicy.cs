@@ -5,9 +5,9 @@ using Microsoft.Extensions.Logging;
 namespace AvtoBus.Security;
 
 /// <summary>
-/// OPA/Rego ABAC порт (Go): политика как код `allow { input.tenant == "eu" }` per-message.
-/// Заменяет плоский `[BusAuthorize(Roles="admin")]` на выразительные правила: `deny if input.pii and clearance LT 3`.
-/// Аналог: OPA sidecar, Cedar, casbin. Оценивается в `AuthorizationMiddleware` перед хендлером.
+/// ABAC-политика как код `allow { input.tenant == "eu" }` per-message.
+/// Заменяет плоский `[BusAuthorize(Roles="admin")]` на выразительные правила.
+/// Оценивается в `AuthorizationMiddleware` перед хендлером.
 /// </summary>
 public sealed class OpaOptions
 {
@@ -60,13 +60,13 @@ public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions op
     public ValueTask InvokeAsync(ConsumeContext context, AvtoBus.Pipeline.BusDelegate next)
     {
         // Пустая политика — это невысказанное намерение: в fail-closed режиме запрещаем,
-        // в audit-режиме пропускаем с пометкой. Раньше пустота всегда разрешала.
+        // в audit-режиме пропускаем с пометкой.
         if (string.IsNullOrWhiteSpace(opts.Policy))
         {
-            logger?.LogWarning("OPA: пустая политика для {MessageType} — {Decision}", context.Envelope.MessageType, opts.FailClosed ? "deny" : "audit-allow");
+            logger?.LogWarning("Policy: пустая политика для {MessageType} — {Decision}", context.Envelope.MessageType, opts.FailClosed ? "deny" : "audit-allow");
             if (opts.FailClosed)
             {
-                context.DeadLetter("OPA deny: empty policy");
+                context.DeadLetter("Policy deny: empty policy");
                 return ValueTask.CompletedTask;
             }
             return next(context);
@@ -75,11 +75,11 @@ public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions op
         var allowed = eval.IsAllowed(context, opts.Policy);
         if (!allowed)
         {
-            logger?.LogWarning("OPA deny {Policy} for {MessageType} {MessageId}", opts.Policy, context.Envelope.MessageType, context.Envelope.MessageId);
+            logger?.LogWarning("Policy deny {Policy} for {MessageType} {MessageId}", opts.Policy, context.Envelope.MessageType, context.Envelope.MessageId);
             if (opts.FailClosed)
-                context.DeadLetter($"OPA deny: {opts.Policy}");
+                context.DeadLetter($"Policy deny: {opts.Policy}");
             else
-                context.DeadLetter($"OPA deny (audit): {opts.Policy}");
+                context.DeadLetter($"Policy deny (audit): {opts.Policy}");
             return ValueTask.CompletedTask;
         }
 

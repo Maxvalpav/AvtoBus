@@ -33,7 +33,6 @@ dotnet test tests/AvtoBus.GeneratorTests  # тесты source generator
 - `src/AvtoBus.Outbox.EfCore` — транзакционный outbox на EF Core.
 - `src/AvtoBus.Sagas` — саги и durable execution.
 - `src/AvtoBus.Testing` — харнесс: вся шина в памяти за одну строку.
-- `docs/` — архитектура, 500 идей, реализации.
 
 ## Стиль
 

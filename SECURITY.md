@@ -35,7 +35,7 @@ AvtoBus ещё не достиг v1.0 и не используется в про
   поля с `[PersonalData]` маскируются в диагностике и DLQ (`PiiMasker`, идея 456).
 - Подпись конвертов HMAC-SHA256 (схема v2, см. ниже) + envelope encryption AES-256-GCM
   реализованы в `AvtoBus.Security` (идеи 451, 452, 455): подключение через
-  `bus.UseEnvelopeSecurity(...)` / `AddAvtoBusSecurity()`. См. `docs/code/17-security-observability.md`.
+  `bus.UseEnvelopeSecurity(...)` / `AddAvtoBusSecurity()`.
 - Авторизация хендлеров через `[BusAuthorize]` + `AuthorizationMiddleware` (идея 453);
   отказ → `UnauthorizedMessageException` → DLQ без ретраев.
 - Проброс пользователя через заголовок `avtobus-user`: доверяем ему только при
@@ -55,7 +55,7 @@ AvtoBus ещё не достиг v1.0 и не используется в про
 | **Repudiation** | Отказ от факта отправки | `SignedByHeader` фиксирует подписанта | Аудиторские журналы приложения |
 | **Information Disclosure** | Чтение тела на транспорте | AES-256-GCM (`EncryptBody`); нонс в заголовке, целостность поверх подписи | Управление ключами (KMS/Key Vault в проде) |
 | **Denial of Service** | Флуд входящими / буст исходящих | Poison без ретраев для невалидных; outbound rate limit (`OutboundRatePerSecond`) | Входящий rate limiting на транспорте; лимиты размера сообщений |
-| **Elevation of Privilege** | Обработка сообщения без прав | `[BusAuthorize]` + `AuthorizationMiddleware`; при подключённой безопасности principal извлекается только из подписанного `avtobus-user` (`SignedPrincipalExtractor`, неподписанный → аноним → отказ); `UnauthorizedMessageException` → DLQ. Пустая OPA-политика запрещает при `FailClosed` | Источник principal (SSO); хендлеры без атрибута — осознанно без авторизации |
+| **Elevation of Privilege** | Обработка сообщения без прав | `[BusAuthorize]` + `AuthorizationMiddleware`; при подключённой безопасности principal извлекается только из подписанного `avtobus-user` (`SignedPrincipalExtractor`, неподписанный → аноним → отказ); `UnauthorizedMessageException` → DLQ. Пустая policy запрещает при `FailClosed` | Источник principal (SSO); хендлеры без атрибута — осознанно без авторизации |
 
 Реализовано в 0.1.0–0.1.1 (прод):
 - mTLS — НЕ поддерживается транспортами: заданный `SecurityOptions.Tls` бросает

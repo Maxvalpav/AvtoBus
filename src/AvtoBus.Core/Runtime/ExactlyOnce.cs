@@ -6,7 +6,6 @@ namespace AvtoBus.Runtime;
 /// <summary>
 /// Exactly-Once via Kafka EOS (transactional.id + read_committed) + Transactional Outbox.
 /// Атомарно: DB commit + Kafka produce в одной транзакции. Идемпотентный продюсер `enable.idempotence=true`.
-/// Аналог: Java Kafka `EOSMode.V2`, Confluent `exactly_once_v2`, NATS JetStream `exactlyOnce`.
 /// </summary>
 public sealed class ExactlyOnceOptions
 {

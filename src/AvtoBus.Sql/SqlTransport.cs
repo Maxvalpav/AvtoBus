@@ -90,48 +90,94 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
             : sourceTable;
 
         // LISTEN-канал для мгновенного пробуждения (идея 67).
-        await using var listenConnection = await OpenAsync(ct).ConfigureAwait(false);
-        await using (var listen = new NpgsqlCommand($"LISTEN {channel}", listenConnection))
-            await listen.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-
-        while (!ct.IsCancellationRequested)
+        // Соединение пересоздаём при сбоях ожидания (см. WaitForNotificationAsync):
+        // держать одно вечно нельзя — отменённое ожидание может отравить его состояние.
+        var listenConnection = await OpenAsync(ct).ConfigureAwait(false);
+        try
         {
-            List<(long Id, Envelope Envelope)> claimed;
-            try
-            {
-                if (destination.Kind == DestinationKind.Topic)
-                    await CopyNewTopicMessagesAsync(sourceTable, readTable, group, ct).ConfigureAwait(false);
+            await using (var listen = new NpgsqlCommand($"LISTEN {channel}", listenConnection))
+                await listen.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
-                claimed = await ClaimBatchAsync(readTable, consumerName, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            while (!ct.IsCancellationRequested)
             {
-                yield break;
-            }
-            catch (NpgsqlException)
-            {
-                // Разрыв соединения — переподключаемся следующим циклом.
-                await Task.Delay(200, ct).ConfigureAwait(false);
-                continue;
-            }
-
-            if (claimed.Count == 0)
-            {
+                List<(long Id, Envelope Envelope)> claimed;
                 try
                 {
-                    await listenConnection.WaitAsync(ct).WaitAsync(_options.ListenTimeout, ct).ConfigureAwait(false);
-                }
-                catch (TimeoutException)
-                {
-                    // ListenTimeout истёк — обычный полл-цикл, не ошибка.
-                }
-                continue;
-            }
+                    if (destination.Kind == DestinationKind.Topic)
+                        await CopyNewTopicMessagesAsync(sourceTable, readTable, group, ct).ConfigureAwait(false);
 
-            foreach (var (id, envelope) in claimed)
+                    claimed = await ClaimBatchAsync(readTable, consumerName, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    yield break;
+                }
+                catch (NpgsqlException)
+                {
+                    // Разрыв соединения — переподключаемся следующим циклом.
+                    await Task.Delay(200, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (claimed.Count == 0)
+                {
+                    listenConnection = await WaitForNotificationAsync(listenConnection, channel, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                foreach (var (id, envelope) in claimed)
+                {
+                    TrackLag(readTable, ct);
+                    yield return new SqlMessage(this, readTable, id, envelope, LogicalName(readTable));
+                }
+            }
+        }
+        finally
+        {
+            try { await listenConnection.DisposeAsync().ConfigureAwait(false); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Ждёт NOTIFY до <see cref="SqlOptions.ListenTimeout"/> и возвращает (возможно новое)
+    /// LISTEN-соединение. Предыдущая реализация оборачивала <c>WaitAsync</c> в
+    /// <c>Task.WaitAsync(timeout)</c>: внутреннее ожидание продолжало висеть на соединении,
+    /// и следующий <c>WaitAsync</c> падал с «already in state 'Waiting'» — раннер умирал
+    /// на втором пустом полле. Здесь ожидание отменяется токеном, а отравленное
+    /// соединение пересоздаётся вместе с подпиской LISTEN.
+    /// </summary>
+    private async ValueTask<NpgsqlConnection> WaitForNotificationAsync(
+        NpgsqlConnection listenConnection, string channel, CancellationToken ct)
+    {
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
             {
-                TrackLag(readTable, ct);
-                yield return new SqlMessage(this, readTable, id, envelope, LogicalName(readTable));
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(_options.ListenTimeout);
+                await listenConnection.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+                return listenConnection;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // ListenTimeout истёк — обычный полл-цикл, не ошибка.
+                return listenConnection;
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                // Ожидание отравило соединение (или разрыв) — пересоздаём с новым LISTEN.
+                try { await listenConnection.DisposeAsync().ConfigureAwait(false); } catch { }
+                try
+                {
+                    listenConnection = await OpenAsync(ct).ConfigureAwait(false);
+                    await using var listen = new NpgsqlCommand($"LISTEN {channel}", listenConnection);
+                    await listen.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+                catch (Exception) when (!ct.IsCancellationRequested)
+                {
+                    await Task.Delay(200, ct).ConfigureAwait(false);
+                }
             }
         }
     }

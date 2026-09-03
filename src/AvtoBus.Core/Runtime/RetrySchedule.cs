@@ -4,9 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Runtime;
 
 /// <summary>
-/// ZIO Schedule / cats-retry порт: компонуемые политики `Schedule.exponential || jitter || spaced || recurs`.
-/// Заменяет плоский `RecoverabilitySettings Immediate/Delayed` на комбинаторы: `Schedule.Exponential(100ms).Jitter().AndThen(Spaced(1s)).Recurs(5)`.
-/// Аналог: ZIO `Schedule`, Scala `cats-retry`, Resilience4j.
+/// Компонуемые политики ретраев: `Schedule.Exponential(100ms).Jitter().AndThen(Spaced(1s)).Recurs(5)`.
+/// Заменяет плоские настройки Immediate/Delayed на комбинаторы.
 /// </summary>
 public abstract class RetrySchedule
 {
@@ -106,7 +105,7 @@ public abstract class RetrySchedule
 
 public static class RetryScheduleExtensions
 {
-    /// <summary>Применяет ZIO Schedule к Recoverability.</summary>
+    /// <summary>Применяет политику ретраев к Recoverability.</summary>
     public static BusConfigurator UseRetrySchedule(this BusConfigurator bus, RetrySchedule schedule, Func<Exception, bool>? predicate = null)
     {
         bus.Recoverability(r =>

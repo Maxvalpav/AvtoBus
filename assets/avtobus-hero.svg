@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" role="img" aria-label="AvtoBus — садись и езжай">
+  <defs>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.55" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="glassGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F0F9FF"/>
+      <stop offset="1" stop-color="#7DD3FC"/>
+    </linearGradient>
+    <linearGradient id="stripeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+    <radialGradient id="glowGrad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FEF3C7"/>
+      <stop offset="1" stop-color="#FEF3C7" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- motion lines -->
+  <g stroke="#C4B5FD" stroke-width="8" stroke-linecap="round" opacity="0.7">
+    <line x1="8" y1="130" x2="56" y2="130"/>
+    <line x1="4" y1="170" x2="48" y2="170"/>
+    <line x1="12" y1="210" x2="52" y2="210"/>
+  </g>
+
+  <!-- shadow -->
+  <ellipse cx="480" cy="338" rx="380" ry="16" fill="#1E1B4B" opacity="0.12"/>
+
+  <!-- headlight glow -->
+  <circle cx="892" cy="216" r="34" fill="url(#glowGrad)"/>
+
+  <!-- body -->
+  <rect x="70" y="80" width="820" height="192" rx="42" fill="url(#bodyGrad)"/>
+  <rect x="70" y="80" width="820" height="30" rx="15" fill="#FFFFFF" opacity="0.18"/>
+
+  <!-- side windows -->
+  <rect x="102" y="106" width="540" height="78" rx="18" fill="url(#glassGrad)"/>
+  <g fill="#6366F1">
+    <rect x="206" y="106" width="12" height="78"/>
+    <rect x="318" y="106" width="12" height="78"/>
+    <rect x="430" y="106" width="12" height="78"/>
+    <rect x="542" y="106" width="12" height="78"/>
+  </g>
+  <!-- glass shine -->
+  <path d="M120 118 L220 118 L150 172 L110 172 Z" fill="#FFFFFF" opacity="0.45"/>
+
+  <!-- windshield -->
+  <path d="M672 106 L806 106 Q842 106 846 142 L850 184 L672 184 Z" fill="url(#glassGrad)"/>
+  <path d="M700 116 L790 116 L820 174 L700 174 Z" fill="#FFFFFF" opacity="0.25"/>
+
+  <!-- destination sign -->
+  <rect x="688" y="192" width="140" height="30" rx="7" fill="#111827"/>
+  <text x="758" y="213" text-anchor="middle" font-family="Consolas, monospace" font-size="19" font-weight="bold" fill="#FBBF24" letter-spacing="2">EDA-01</text>
+
+  <!-- stripe with slogan -->
+  <rect x="70" y="198" width="820" height="40" fill="url(#stripeGrad)"/>
+  <text x="380" y="226" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="23" font-weight="bold" fill="#FFFFFF" letter-spacing="3">AVTOBUS • САДИСЬ И ЕЗЖАЙ</text>
+
+  <!-- front badge -->
+  <circle cx="862" cy="140" r="17" fill="#FFFFFF" opacity="0.92"/>
+  <text x="862" y="147" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="bold" fill="#4F46E5">AB</text>
+
+  <!-- headlight -->
+  <rect x="876" y="200" width="16" height="30" rx="8" fill="#FDE68A" stroke="#F59E0B" stroke-width="2"/>
+
+  <!-- lower skirt -->
+  <rect x="70" y="246" width="820" height="26" rx="13" fill="#1E1B4B" opacity="0.28"/>
+
+  <!-- wheels -->
+  <g>
+    <circle cx="252" cy="288" r="50" fill="#1F2937"/>
+    <circle cx="252" cy="288" r="23" fill="#E5E7EB"/>
+    <circle cx="252" cy="288" r="9" fill="#9CA3AF"/>
+    <circle cx="724" cy="288" r="50" fill="#1F2937"/>
+    <circle cx="724" cy="288" r="23" fill="#E5E7EB"/>
+    <circle cx="724" cy="288" r="9" fill="#9CA3AF"/>
+  </g>
+
+  <!-- road -->
+  <rect x="0" y="344" width="960" height="10" rx="5" fill="#C7D2FE"/>
+  <g fill="#FFFFFF">
+    <rect x="60" y="346" width="70" height="6" rx="3"/>
+    <rect x="220" y="346" width="70" height="6" rx="3"/>
+    <rect x="380" y="346" width="70" height="6" rx="3"/>
+    <rect x="540" y="346" width="70" height="6" rx="3"/>
+    <rect x="700" y="346" width="70" height="6" rx="3"/>
+    <rect x="860" y="346" width="70" height="6" rx="3"/>
+  </g>
+</svg>

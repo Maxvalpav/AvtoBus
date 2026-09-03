@@ -23,7 +23,7 @@ builder.Services.AddAvtoBus(bus =>
     bus.UseOutbox<OrderDbContext>(o => o.BatchSize = 200);
     bus.UseInboxDeduplication(TimeSpan.FromHours(24));
 
-    // 3) Recoverability как у NServiceBus
+    // 3) Recoverability: мгновенные + отложенные ретраи с backoff
     bus.Recoverability(r => r
         .ImmediateRetries(3)
         .DelayedRetries(5, Backoff.Exponential(TimeSpan.FromSeconds(5)))

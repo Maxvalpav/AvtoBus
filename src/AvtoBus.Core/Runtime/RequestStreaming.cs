@@ -5,9 +5,7 @@ using AvtoBus;
 namespace AvtoBus.Runtime;
 
 /// <summary>
-/// Request Streaming как gRPC server-streaming + Akka Streams Source.
-/// `IBus.RequestStreamAsync` шлет 1 запрос → N ответов `IAsyncEnumerable`. Завершение — `StreamEnd` marker.
-/// Аналог: gRPC `rpc Search(stream) returns (stream Result)`, RS `Publisher`, Akka `Source.queue`.
+/// Request Streaming как server-streaming: `IBus.RequestStreamAsync` шлет 1 запрос → N ответов `IAsyncEnumerable`. Завершение — `StreamEnd` marker.
 /// Хендлер стримит через `ctx.StreamAsync(reply)` / `ctx.CompleteStream()`.
 /// </summary>
 public interface IBusStreaming

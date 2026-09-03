@@ -32,7 +32,7 @@ public interface ISagaContext
 
     /// <summary>
     /// Детерминированный шаг (стиль B): результат checkpoint-ится в журнале,
-    /// при повторе выполняется только то, что впервые (Temporal-style).
+    /// при повторе выполняется только то, что впервые.
     /// </summary>
     ValueTask<TResult> Step<TResult>(Func<Task<TResult>> action, Func<TResult, Task>? compensate = null)
         => throw new NotSupportedException("Step доступен только в durable-саге (стиль B).");
@@ -46,7 +46,7 @@ public interface ISagaContext
 }
 
 /// <summary>
-/// Стиль A: сага с состоянием (NServiceBus-style, док 17, §1).
+/// Стиль A: сага с состоянием (док 17, §1).
 /// Состояние восстанавливается из хранилища, оптимистичная блокировка по версии.
 /// </summary>
 public abstract class Saga<TState> where TState : SagaState, new()

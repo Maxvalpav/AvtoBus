@@ -340,12 +340,15 @@ public sealed class OutboxPostgresTests
         // Реплика A обрабатывает сообщение и фиксирует inbox-запись.
         await replicaA.Bus.PublishAsync(new OrderPaid(Guid.NewGuid()), new PublishOptions { MessageId = messageId });
 
-        // Дубликат той же доставки попадает реплике B — подавлен общим ключом (MessageId, "orders").
-        await replicaB.Bus.PublishAsync(new OrderPaid(Guid.NewGuid()), new PublishOptions { MessageId = messageId });
-
+        // Ждём ОБРАБОТКУ A (а не только постановку): иначе дубликат B может обогнать
+        // коммит inbox-записи A и обе реплики обработают — ложный фейл под нагрузкой.
         Assert.True(
             await replicaA.WaitUntilAsync(() => Volatile.Read(ref handledA) >= 1, TimeSpan.FromSeconds(10)),
             "Реплика A не обработала сообщение.");
+        await Task.Delay(1000);
+
+        // Дубликат той же доставки попадает реплике B — подавлен общим ключом (MessageId, "orders").
+        await replicaB.Bus.PublishAsync(new OrderPaid(Guid.NewGuid()), new PublishOptions { MessageId = messageId });
 
         await Task.Delay(500);
 
@@ -440,13 +443,20 @@ public sealed class OutboxPostgresTests
     {
         var cs = await RequirePgAsync();
 
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
-        builder.Services.AddDbContext<TestOutboxContext>(o => o.UseNpgsql(cs));
-        builder.Services.AddAvtoBus(bus => bus
-            .UseInMemory()
-            .UseOutbox<TestOutboxContext>());
+        // Generic Host не поддерживает рестарт остановленного хоста (ApplicationStopping
+        // уже отменён — второй StartAsync бросает OperationCanceledException), поэтому
+        // идемпотентность проверяем вторым инстансом хоста на той же БД.
+        Microsoft.Extensions.Hosting.IHost BuildApp()
+        {
+            var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+            builder.Services.AddDbContext<TestOutboxContext>(o => o.UseNpgsql(cs));
+            builder.Services.AddAvtoBus(bus => bus
+                .UseInMemory()
+                .UseOutbox<TestOutboxContext>());
+            return builder.Build();
+        }
 
-        using var app = builder.Build();
+        using var app = BuildApp();
         await app.StartAsync();
         try
         {
@@ -459,11 +469,24 @@ public sealed class OutboxPostgresTests
 
             // Повторный старт с той же БД не падает и не дублирует схему.
             await app.StopAsync();
-            await app.StartAsync();
         }
         finally
         {
             await app.StopAsync();
+        }
+
+        using var app2 = BuildApp();
+        await app2.StartAsync();
+        try
+        {
+            await using (var db = new TestOutboxContext(Options(cs)))
+            {
+                Assert.True(await TableExistsAsync(db, "avtobus_schema_versions"));
+            }
+        }
+        finally
+        {
+            await app2.StopAsync();
         }
     }
 

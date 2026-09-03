@@ -4,9 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Runtime;
 
 /// <summary>
-/// Toxiproxy / ChaosMesh порт (Go/Infra): транспорт-хаос на TCP — latency, down, timeout, duplicate.
+/// Хаос-транспорт для тестов: latency, down, timeout, duplicate на TCP.
 /// Декорирует любой `ITransport` и инжектит `Toxic` перед `SendAsync`/`ReceiveAsync`.
-/// Аналог: Toxiproxy `toxics: [latency, slow_close, timeout]`, ChaosMesh `NetworkChaos`.
 /// Используется только в тестах: `bus.UseToxiproxy(a=>a.Latency(100).Down(0.05))`.
 /// </summary>
 public sealed class ToxiproxyOptions

@@ -5,10 +5,9 @@ using System.Text.Json;
 namespace AvtoBus.Pipeline;
 
 /// <summary>
-/// Benthos/Redpanda Connect Bloblang порт: декларативный `mapping:` внутри pipeline.
+/// Декларативный `mapping:` внутри pipeline.
 /// Позволяет админу задать трансформацию без пересборки: `root.total = this.total * 1.2; root = this; root.filtered = this.amount > 100`.
 /// Выполняется перед сериализацией (inbound) и после десериализации (outbound) как `IBusMiddleware`.
-/// Аналог: benthos `mapping: root = this; root.foo = this.bar | upper()`.
 /// </summary>
 public sealed class BloblangOptions
 {
@@ -163,7 +162,7 @@ public sealed class BloblangProducerTransformer(BloblangOptions opts)
 
 public static class BloblangExtensions
 {
-    /// <summary>Benthos-style: `bus.UseBloblang("root.total = this.total * 1.2")`</summary>
+    /// <summary>Пример: `bus.UseBloblang("root.total = this.total * 1.2")`</summary>
     public static BusConfigurator UseBloblang(this BusConfigurator bus, string mapping, bool failOnError = false)
     {
         var opts = new BloblangOptions { Mapping = mapping, FailOnError = failOnError };

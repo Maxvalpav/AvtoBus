@@ -5,8 +5,7 @@ namespace AvtoBus.Runtime;
 
 /// <summary>
 /// CloudEvents 1.0 (идея 117): конверт AvtoBus маппится в атрибуты CloudEvents бинарного режима
-/// (ce-* заголовки). Любой CloudEvents-совместимый потребитель — Knative, Dapr, Azure Event Grid,
-/// GCP Eventarc — читает конверт как CloudEvent, тело — как data.
+/// (ce-* заголовки). Любой совместимый потребитель читает конверт как CloudEvent, тело — как data.
 ///
 /// Обратный путь не нужен: входящий конверт уже содержит все заголовки, AvtoBus читает свои
 /// (MessageId, MessageType) из собственных полей, а не из ce-*.

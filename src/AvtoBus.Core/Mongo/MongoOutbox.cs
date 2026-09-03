@@ -4,10 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AvtoBus.Mongo;
 
 /// <summary>
-/// MongoDB/Marten Outbox порт (CAP + Marten): транзакционный outbox для document store.
-/// Пишет `avtobus_outbox` коллекцию в той же `IClientSessionHandle` что и бизнес-документ, relay читает по `change stream` или polling.
-/// Аналог: CAP `MongoDB` storage, Marten `IHostedService` daemon. Без зависимости на `MongoDB.Driver` — абстракция `IMongoOutboxStore`.
-/// Для тестов — `InMemoryMongoOutboxStore`. Прод замена — `MongoOutboxStore` с `IMongoCollection&lt;MongoOutboxDoc&gt;.
+/// Outbox для document store: транзакционный outbox в той же сессии, что и бизнес-документ,
+/// relay читает по change stream или polling.
+/// Без зависимости на драйвер — абстракция `IMongoOutboxStore`.
+/// Для тестов — `InMemoryMongoOutboxStore`.
 /// </summary>
 public sealed class MongoOutboxOptions
 {
@@ -47,7 +47,7 @@ public sealed class InMemoryMongoOutboxStore : IMongoOutboxStore
     public int Count => _map.Count;
 }
 
-/// <summary>Marten variant: хранит outbox как `IEvent` внутри `IDocumentSession`.</summary>
+/// <summary>Вариант для document-сессий: хранит outbox как событие внутри сессии.</summary>
 public interface IMartenOutboxSession
 {
     void StoreOutbox(MongoOutboxDoc doc);

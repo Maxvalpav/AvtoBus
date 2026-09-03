@@ -1,8 +1,7 @@
 namespace AvtoBus.Multitenancy;
 
 /// <summary>
-/// Фича 7 по порядку — усилена per-tenant quota (как NServiceBus Bridge + RateLimit).
-/// Добавляет лимит сообщений в секунду на tenant, сверх — в DLQ.
+/// Per-tenant quota: лимит сообщений в секунду на tenant, сверх — в DLQ.
 /// </summary>
 public sealed class PerTenantQuota
 {
