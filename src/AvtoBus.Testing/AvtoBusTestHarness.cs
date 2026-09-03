@@ -80,16 +80,16 @@ public sealed class AvtoBusTestHarness : IAsyncDisposable
         return new AvtoBusTestHarness(host, recorder, faults);
     }
 
-    private static async Task WaitForConsumersAsync(IHost host)
+    private static async Task WaitForConsumersAsync(IHost host, CancellationToken ct = default)
     {
         var consumerHost = host.Services.GetRequiredService<ConsumerHost>();
 
         // Подписки регистрируются в ExecuteAsync; ждём, пока ранеры появятся.
         for (var i = 0; i < 200 && consumerHost.Runners.Count == 0; i++)
-            await Task.Delay(5).ConfigureAwait(false);
+            await Task.Delay(5, ct).ConfigureAwait(false);
 
         // Ранеры созданы, но подписка на канал происходит при первом MoveNext итератора.
-        await Task.Delay(50).ConfigureAwait(false);
+        await Task.Delay(50, ct).ConfigureAwait(false);
     }
 
     /// <summary>

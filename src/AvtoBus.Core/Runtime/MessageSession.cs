@@ -39,7 +39,7 @@ public sealed class MessageSession(AvtoBusClient bus, IServiceProvider services)
         // но уходит в outbox текущей транзакции, а не в транспорт.
         var (envelope, destination, transportName, activity) = bus.Prepare(message, message.GetType(), kind, options, parent: null);
         using var _ = activity;
-        await sink.EnqueueAsync(envelope, destination.Name, transportName, ct).ConfigureAwait(false);
+        await sink.EnqueueAsync(envelope, destination.Name, transportName, destination.Kind, ct).ConfigureAwait(false);
     }
 
     /// <summary>

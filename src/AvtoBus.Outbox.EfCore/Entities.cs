@@ -9,6 +9,8 @@ public sealed class OutboxMessage
     public Guid MessageId { get; set; }
     public string Destination { get; set; } = "";
     public string Transport { get; set; } = "";
+    /// <summary>Вид назначения: 0 — очередь, 1 — топик (см. <c>DestinationKind</c>).</summary>
+    public int Kind { get; set; }
     public string MessageType { get; set; } = "";
     public string? PartitionKey { get; set; }
     public string? TenantId { get; set; }
@@ -44,7 +46,7 @@ public static class OutboxModelBuilder
             e.ToTable("avtobus_outbox");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.MessageId).IsUnique();
-            e.HasIndex(x => new { x.SentAt, x.SendAfter })
+            e.HasIndex(x => new { x.SentAt, x.SendAfter, x.ClaimedAt, x.Id })
                 .HasFilter("\"SentAt\" IS NULL");
             e.Property(x => x.EnvelopeBlob).HasColumnType("bytea");
         });

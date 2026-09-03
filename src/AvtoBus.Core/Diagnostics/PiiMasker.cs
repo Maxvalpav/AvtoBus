@@ -21,8 +21,6 @@ namespace AvtoBus.Diagnostics;
 /// </remarks>
 public static class PiiMasker
 {
-    private const int MaxCachedTypes = 2000;
-
     /// <summary>
     /// Соль детерминированной маски (pepper развёртки). По умолчанию константа —
     /// маски коррелируются между процессами и рестартами; оператор задаёт свою через
@@ -30,8 +28,11 @@ public static class PiiMasker
     /// </summary>
     public static string Salt { get; set; } = "avtobus-pii-v2";
 
-    private static readonly ConcurrentDictionary<Type, FrozenDictionary<string, string>> MaskedProperties =
+    private static readonly ConcurrentDictionary<Type, FrozenDictionary<string, FieldRule>> MaskedProperties =
         new();
+
+    /// <summary>Правило поля: категория PII (null — не PII) + CLR-тип значения для рекурсии.</summary>
+    private sealed record FieldRule(string? Category, Type? ValueType);
 
     /// <summary>
     /// Маскирует строку: HMAC-подобная конструкция SHA256(salt || value), 128 бит.
@@ -73,28 +74,37 @@ public static class PiiMasker
             return "null";
 
         var type = message.GetType();
-        if (MaskedProperties.Count >= MaxCachedTypes && !MaskedProperties.ContainsKey(type))
-            return "***pii-redacted***";
+        // Без лимита числа типов: раньше при 2000+ типов новые навсегда возвращали
+        // заглушку и диагностика слепла. Карт — по одной на CLR-тип, в приложениях их сотни.
         var fields = MaskedProperties.GetOrAdd(type, BuildFieldMap);
         if (fields.Count == 0)
             return JsonSerializer.Serialize(message, type);
 
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(message, type));
-        var masked = MaskElement(document.RootElement, fields);
+        var masked = MaskElement(document.RootElement, type);
         return JsonSerializer.Serialize(masked, new JsonSerializerOptions { WriteIndented = false });
     }
 
-    private static object? MaskElement(JsonElement element, FrozenDictionary<string, string> fields)
+    private static object? MaskElement(JsonElement element, Type? dotnetType)
     {
+        var fields = dotnetType is null ? null : MaskedProperties.GetOrAdd(dotnetType, BuildFieldMap);
         return element.ValueKind switch
         {
             JsonValueKind.Object => element.EnumerateObject().ToDictionary(
                 p => p.Name,
-                p => fields.ContainsKey(p.Name) && p.Value.ValueKind is not JsonValueKind.Null
-                    ? Mask(p.Value.GetString() ?? p.Value.GetRawText())
-                    : MaskElement(p.Value, fields),
+                p =>
+                {
+                    FieldRule? rule = null;
+                    fields?.TryGetValue(p.Name, out rule);
+                    if (rule?.Category is not null && p.Value.ValueKind is not JsonValueKind.Null)
+                        return Mask(p.Value.GetString() ?? p.Value.GetRawText());
+                    // Рекурсия с CLR-типом свойства: одноимённое поле вложенного типа
+                    // без атрибута больше не маскируется ложно родительской картой.
+                    return MaskElement(p.Value, rule?.ValueType ?? ElementTypeOf(dotnetType));
+                },
                 StringComparer.Ordinal),
-            JsonValueKind.Array => element.EnumerateArray().Select(e => MaskElement(e, fields)).ToArray(),
+            JsonValueKind.Array => element.EnumerateArray()
+                .Select(e => MaskElement(e, ElementTypeOf(dotnetType))).ToArray(),
             JsonValueKind.String => element.GetString(),
             JsonValueKind.Number => element.GetDecimal(),
             JsonValueKind.True => true,
@@ -102,6 +112,19 @@ public static class PiiMasker
             JsonValueKind.Null => null,
             _ => element.GetRawText()
         };
+    }
+
+    /// <summary>Тип элементов массива/списка для рекурсии; иначе null.</summary>
+    private static Type? ElementTypeOf(Type? type)
+    {
+        if (type is null) return null;
+        if (type.IsArray) return type.GetElementType();
+        if (type.IsGenericType)
+        {
+            var args = type.GetGenericArguments();
+            if (args.Length == 1) return args[0];
+        }
+        return null;
     }
 
     private static object? Read(JsonElement element) => element.ValueKind switch
@@ -120,9 +143,9 @@ public static class PiiMasker
     };
 
     [RequiresUnreferencedCode("Сканирование свойств на PersonalDataAttribute — reflection (legacy).")]
-    private static FrozenDictionary<string, string> BuildFieldMap(Type type)
+    private static FrozenDictionary<string, FieldRule> BuildFieldMap(Type type)
     {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, FieldRule>(StringComparer.OrdinalIgnoreCase);
         var contractMarked = type.GetCustomAttribute<PersonalDataAttribute>() is not null;
 
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -132,16 +155,17 @@ public static class PiiMasker
             {
                 var name = property.Name;
                 if (string.IsNullOrEmpty(name)) continue;
-                map[name] = attribute?.Category ?? "pii";
+                var rule = new FieldRule(attribute?.Category ?? "pii", property.PropertyType);
+                map[name] = rule;
                 // Также camelCase вариант, т.к. JsonSerializer может использовать PropertyNamingPolicy.CamelCase
                 if (name.Length > 1)
                 {
                     var camel = char.ToLowerInvariant(name[0]) + name[1..];
-                    map.TryAdd(camel, attribute?.Category ?? "pii");
+                    map.TryAdd(camel, rule);
                 }
                 else
                 {
-                    map.TryAdd(name.ToLowerInvariant(), attribute?.Category ?? "pii");
+                    map.TryAdd(name.ToLowerInvariant(), rule);
                 }
             }
         }

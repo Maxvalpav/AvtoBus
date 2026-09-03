@@ -71,16 +71,27 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
 
         if (_options.RequireSignature)
         {
-            var version = _options.SignatureVersion >= EnvelopeSigner.V2 ? EnvelopeSigner.V2 : EnvelopeSigner.V1;
-            var signature = EnvelopeSigner.ComputeSignature(prepared, key.SigningKey, version);
-            prepared = prepared
-                .WithHeader(EnvelopeSigner.SignatureHeader, signature)
-                .WithHeader(EnvelopeSigner.SignedByHeader, serviceIdentity ?? _options.SigningIdentity);
-            if (version >= EnvelopeSigner.V2)
-                prepared = prepared.WithHeader(EnvelopeSigner.SignatureVersionHeader, "2");
+            prepared = StampSignature(prepared, key, serviceIdentity);
         }
 
         return prepared;
+    }
+
+    /// <summary>
+    /// Ставит свежую подпись схемой из <see cref="SecurityOptions.SignatureVersion"/>
+    /// (v2 по умолчанию). Отдельно от <c>ProtectCore</c> — переиспользуется после
+    /// расшифровки (см. <c>OpenInbound</c>).
+    /// </summary>
+    internal Envelope StampSignature(Envelope envelope, SecurityKeys keys, string? serviceIdentity)
+    {
+        var version = _options.SignatureVersion >= EnvelopeSigner.V2 ? EnvelopeSigner.V2 : EnvelopeSigner.V1;
+        var signature = EnvelopeSigner.ComputeSignature(envelope, keys.SigningKey, version);
+        var stamped = envelope
+            .WithHeader(EnvelopeSigner.SignatureHeader, signature)
+            .WithHeader(EnvelopeSigner.SignedByHeader, serviceIdentity ?? _options.SigningIdentity);
+        if (version >= EnvelopeSigner.V2)
+            stamped = stamped.WithHeader(EnvelopeSigner.SignatureVersionHeader, "2");
+        return stamped;
     }
 
     public Envelope OpenInbound(Envelope envelope)
@@ -112,11 +123,17 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
                     // Strip nonce header after successful decrypt to avoid header leak
                     var strippedHeaders = envelope.Headers.Where(kv => kv.Key != BodyEncryptor.NonceHeader)
                         .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
-                    return envelope with
+                    var opened = envelope with
                     {
                         Body = plain,
                         Headers = System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(strippedHeaders, StringComparer.Ordinal),
                     };
+                    // Подпись была посчитана по шифртексту: на открытом теле она протухает,
+                    // и SignedPrincipalExtractor отклонял бы свои же сообщения.
+                    // Подпись уже проверена выше — перештамповываем свежую по plaintext.
+                    if (opened.Header(EnvelopeSigner.SignatureHeader) is not null)
+                        opened = StampSignature(opened, keys, opened.Header(EnvelopeSigner.SignedByHeader));
+                    return opened;
                 }
                 catch (Exception ex) when (ex is CryptographicException or ArgumentException)
                 {
@@ -152,12 +169,12 @@ internal sealed class RateLimiter(int permitsPerSecond)
         }
     }
 
-    public ValueTask WaitIfNeededAsync(CancellationToken ct = default)
+    public async ValueTask WaitIfNeededAsync(CancellationToken ct = default)
     {
         var ms = Reserve();
-        if (ms <= 0) return ValueTask.CompletedTask;
+        if (ms <= 0) return;
         var jitter = Random.Shared.Next(0, 30);
-        return new ValueTask(Task.Delay((int)ms + jitter, ct));
+        await Task.Delay((int)ms + jitter, ct).ConfigureAwait(false);
     }
 
     private long Reserve()

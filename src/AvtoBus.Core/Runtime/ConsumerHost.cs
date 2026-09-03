@@ -56,6 +56,12 @@ public sealed class ConsumerHost(
 
         foreach (var subscription in subscriptions)
         {
+            // Fail-fast: MaxParallelism<=0 (напрямую в ConsumerSettings, мимо fluent-гарда)
+            // иначе давал тихий stall — WaitAsync/DrainAsync висели до таймаута.
+            var parallelism = subscription.Settings?.MaxParallelism ?? 1;
+            if (parallelism < 1)
+                throw new InvalidOperationException(
+                    $"MaxParallelism должен быть >= 1 (подписка '{subscription.Subscription.Destination.Name}').");
             var runner = new ConsumerRunner(subscription, processor, options, time, logger);
             _runners.Add(runner);
         }
@@ -230,7 +236,15 @@ public sealed class ConsumerHost(
             runner.StopReceiving();
 
         // 2. Дрейн: ждём завершения начатых обработок в пределах ShutdownDrainTimeout.
-        using var drain = new CancellationTokenSource(options.ShutdownDrainTimeout);
+        // Отрицательный таймаут ронял бы StopAsync в ArgumentOutOfRangeException —
+        // клампим с предупреждением вместо сломанной остановки.
+        var drainTimeout = options.ShutdownDrainTimeout;
+        if (drainTimeout < TimeSpan.Zero)
+        {
+            logger.LogWarning("ShutdownDrainTimeout отрицательный ({Timeout}) — использован 30с по умолчанию", drainTimeout);
+            drainTimeout = TimeSpan.FromSeconds(30);
+        }
+        using var drain = new CancellationTokenSource(drainTimeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drain.Token);
 
         foreach (var runner in _runners)

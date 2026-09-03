@@ -44,7 +44,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAvtoBus(bus =>
 {
     bus.AddConsumersFromAssembly(typeof(Program).Assembly);
+    bus.UseProductionDefaults(); // ретраи + inbox-дедуп + circuit breaker в одну строку
 });
+
+// С базой и подписью — тот же один вызов:
+// bus.UseProductionDefaults<AppDbContext>(o => o.MasterSecret = "shared-secret");
 
 app.MapPost("/orders", async (PlaceOrder cmd, IBus bus) =>
 {

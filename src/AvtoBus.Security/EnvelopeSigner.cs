@@ -32,27 +32,18 @@ internal static class EnvelopeSigner
     public static string ComputeSignature(Envelope envelope, ReadOnlySpan<byte> key, int version = V2)
     {
         ValidateKeyLength(key);
-        // HMACSHA256 копирует ключ внутрь; нашу копию затираем сразу после использования,
-        // чтобы секрет не оставался в управляемой куче.
-        var keyCopy = key.ToArray();
-        try
-        {
-            using var hmac = new HMACSHA256(keyCopy);
-            if (version >= V2)
-                AddV2Fields(hmac, envelope);
-            else
-                AddV1Fields(hmac, envelope);
+        // IncrementalHash копирует ключ внутрь: ToArray-копии в управляемой куче больше нет,
+        // ArrayPool и stackalloc->heap ToArray на каждое поле — тоже (AppendData ест спан напрямую).
+        using var hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, key);
+        if (version >= V2)
+            AddV2Fields(hmac, envelope);
+        else
+            AddV1Fields(hmac, envelope);
 
-            hmac.TransformFinalBlock([], 0, 0);
-            return Convert.ToBase64String(hmac.Hash ?? []);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(keyCopy);
-        }
+        return Convert.ToBase64String(hmac.GetHashAndReset());
     }
 
-    private static void AddV1Fields(HMACSHA256 hmac, Envelope envelope)
+    private static void AddV1Fields(IncrementalHash hmac, Envelope envelope)
     {
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.MessageId.ToString("N")));
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.MessageType!));
@@ -63,7 +54,7 @@ internal static class EnvelopeSigner
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.Header(BusHeaders.User) ?? ""));
     }
 
-    private static void AddV2Fields(HMACSHA256 hmac, Envelope envelope)
+    private static void AddV2Fields(IncrementalHash hmac, Envelope envelope)
     {
         AddV1Fields(hmac, envelope);
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.CausationId?.ToString() ?? ""));
@@ -71,11 +62,11 @@ internal static class EnvelopeSigner
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.PartitionKey ?? ""));
         Span<byte> num = stackalloc byte[8];
         BinaryPrimitives.WriteInt32BigEndian(num[..4], envelope.Priority);
-        hmac.TransformBlock(num[..4].ToArray(), 0, 4, null, 0);
+        hmac.AppendData(num[..4]);
         BinaryPrimitives.WriteInt64BigEndian(num, envelope.DeliverAt?.UtcTicks ?? 0);
-        hmac.TransformBlock(num.ToArray(), 0, 8, null, 0);
+        hmac.AppendData(num);
         BinaryPrimitives.WriteInt64BigEndian(num, envelope.TimeToLive?.Ticks ?? 0);
-        hmac.TransformBlock(num.ToArray(), 0, 8, null, 0);
+        hmac.AppendData(num);
         AddField(hmac, Encoding.UTF8.GetBytes(envelope.TraceParent ?? ""));
     }
 
@@ -113,22 +104,12 @@ internal static class EnvelopeSigner
         }
     }
 
-    private static void AddField(HMACSHA256 hmac, ReadOnlySpan<byte> value)
+    private static void AddField(IncrementalHash hmac, ReadOnlySpan<byte> value)
     {
         Span<byte> length = stackalloc byte[4];
         BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
-        hmac.TransformBlock(length.ToArray(), 0, 4, null, 0);
-        if (value.Length > 0)
-        {
-            // Avoid extra alloc for small values via ArrayPool; буфер затираем при
-            // возврате, чтобы фрагменты подписанных данных не оставались в пуле.
-            var rented = System.Buffers.ArrayPool<byte>.Shared.Rent(value.Length);
-            try
-            {
-                value.CopyTo(rented);
-                hmac.TransformBlock(rented, 0, value.Length, null, 0);
-            }
-            finally { System.Buffers.ArrayPool<byte>.Shared.Return(rented, clearArray: true); }
-        }
+        hmac.AppendData(length);
+        if (!value.IsEmpty)
+            hmac.AppendData(value);
     }
 }

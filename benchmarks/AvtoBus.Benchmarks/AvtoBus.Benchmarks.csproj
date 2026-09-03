@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AvtoBus.Core\AvtoBus.Core.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.InMemory\AvtoBus.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Security\AvtoBus.Security.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Generators\AvtoBus.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

@@ -195,10 +195,6 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
             "baggage", BusHeaders.TraceParent, BusHeaders.TraceState,
         };
 
-        var protectedBytes = headers.Where(kvp => protectedHeaders.Contains(kvp.Key))
-            .Sum(kvp => ByteLen(kvp.Key) + ByteLen(kvp.Value));
-        _ = protectedBytes; // tracked for budget awareness
-
         // First evict non-protected headers, largest first
         foreach (var key in headers
                      .Where(kvp => !protectedHeaders.Contains(kvp.Key))

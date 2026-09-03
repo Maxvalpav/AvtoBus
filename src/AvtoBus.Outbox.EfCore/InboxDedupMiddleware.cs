@@ -14,6 +14,13 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
 
     public InboxDedupMiddleware(string consumerId) => _consumerId = consumerId;
 
+    /// <summary>
+    /// Окно дедупликации: записи старше игнорируются (дефолт 7 дней = <c>OutboxOptions.CleanupAfter</c>).
+    /// In-memory путь настраивается через <c>BusOptions.InboxWindow</c>; здесь — свойством,
+    /// т.к. middleware создаётся вручную с consumerId.
+    /// </summary>
+    public TimeSpan InboxWindow { get; set; } = TimeSpan.FromDays(7);
+
     [Obsolete("Use InboxDedupMiddleware(string consumerId) — IServiceScopeFactory больше не нужен, inbox теперь в том же скоупе что хендлер.", DiagnosticId = "AVB0001", UrlFormat = "https://avtobus.io/docs/15-implementation-outbox#inbox")]
     public InboxDedupMiddleware(IServiceScopeFactory _, string consumerId) : this(consumerId) { }
 
@@ -32,9 +39,11 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
 
         // Pre-check до вызова хендлера: без него дубликат выполнял хендлер,
         // а уникальный ключ срабатывал лишь на SaveChanges — уже после обработки.
+        // Фильтр по окну: старые записи чистка уже удалила, повтор вне окна — не дубликат.
         var messageId = ctx.Envelope.MessageId;
+        var cutoff = (ctx.Services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime - InboxWindow;
         var seen = await db.Set<InboxRecord>().AnyAsync(
-            r => r.MessageId == messageId && r.ConsumerId == consumerId,
+            r => r.MessageId == messageId && r.ConsumerId == consumerId && r.ProcessedAt >= cutoff,
             ctx.CancellationToken).ConfigureAwait(false);
         if (seen)
             return;
@@ -61,7 +70,12 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
             // Гонка: два консьюмера одновременно прошли AnyAsync — уникальный ключ ловит дубль.
-            return;
+            // НО: глушим только конфликт inbox-таблицы. Бизнес-конфликт уникальности
+            // (свой INSERT хендлера) раньше маскировался под дубликат — сообщение молча
+            // подтверждалось без ретрая/DLQ (потеря данных). Чужой конфликт — проброс.
+            if (IsInboxConstraint(ex))
+                return;
+            throw;
         }
     }
 
@@ -77,5 +91,24 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
         return inner?.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) == true
                || inner?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true
                || inner?.Message.Contains("23505", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    /// <summary>
+    /// Конфликт именно inbox-таблицы (а не бизнес-уникальности хендлера):
+    /// имя ограничения PK_avtobus_inbox / таблица avtobus_inbox в сообщении или
+    /// ConstraintName провайдера (Npgsql: PostgresException.ConstraintName).
+    /// </summary>
+    private static bool IsInboxConstraint(DbUpdateException ex)
+    {
+        for (var e = ex.InnerException; e is not null; e = e.InnerException)
+        {
+            var constraint = e.GetType().GetProperty("ConstraintName")?.GetValue(e) as string;
+            if (constraint is not null)
+                return constraint.Contains("avtobus_inbox", StringComparison.OrdinalIgnoreCase);
+            var msg = e.Message;
+            if (msg.Contains("avtobus_inbox", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }

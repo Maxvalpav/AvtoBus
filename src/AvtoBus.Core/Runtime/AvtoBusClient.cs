@@ -16,6 +16,9 @@ public sealed class AvtoBusClient(
     IUniqueStore? uniqueStore = null,
     AvtoBus.ClaimCheck.ClaimCheckService? claimCheck = null) : IBus
 {
+    /// <summary>Кэш UniqueJobAttribute на тип: GetCustomAttributes аллоцирует на каждое сообщение.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, UniqueJobAttribute?> UniqueJobAttributeCache = new();
+
     public ValueTask PublishAsync<T>(T @event, PublishOptions? options = null, CancellationToken ct = default)
         where T : class
         => DispatchAsync(@event, typeof(T), OutgoingKind.Publish, options, parent: null, ct);
@@ -109,7 +112,9 @@ public sealed class AvtoBusClient(
             }
             else
             {
-                var attr = messageType.GetCustomAttributes(typeof(UniqueJobAttribute), true).FirstOrDefault() as UniqueJobAttribute;
+                // Кэш атрибута на тип: GetCustomAttributes аллоцирует массив на каждое сообщение.
+                var attr = UniqueJobAttributeCache.GetOrAdd(messageType, static t =>
+                    t.GetCustomAttributes(typeof(UniqueJobAttribute), true).FirstOrDefault() as UniqueJobAttribute);
                 if (attr is not null)
                 {
                     var dest = ResolveDestination(messageType, kind, messageOptions, parent);

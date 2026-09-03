@@ -17,11 +17,40 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
 
     /// <summary>
     /// Отмечает сообщение обработанным. <c>false</c> означает «уже видели» — дубликат.
+    /// Lock-free быстрый путь: новое сообщение добавляется одним TryAdd; протухшая
+    /// запись вытесняется compare-remove по значению. Лок только на эвикции при
+    /// переполнении и на периодическом sweep.
     /// </summary>
     public bool TryMarkProcessed(Guid messageId, string consumer)
     {
         var now = time.GetUtcNow();
-        SweepIfDue(now);
+        var key = (messageId, consumer);
+
+        while (true)
+        {
+            if (_seen.TryAdd(key, now))
+            {
+                SweepIfDue(now);
+                EvictIfFull(now);
+                return true;
+            }
+
+            // Ключ есть: дубликат, если запись свежая; протухшую вытесняем и повторяем.
+            if (!_seen.TryGetValue(key, out var seenAt) || now - seenAt < window)
+                return false;
+
+            // Compare-remove: удаляем только если значение не поменялось конкурентно
+            // (ICollection.Remove у ConcurrentDictionary атомарно сверяет пару).
+            var pair = new System.Collections.Generic.KeyValuePair<(Guid, string), DateTimeOffset>(key, seenAt);
+            ((System.Collections.Generic.ICollection<System.Collections.Generic.KeyValuePair<(Guid, string), DateTimeOffset>>)_seen).Remove(pair);
+        }
+    }
+
+    /// <summary>Эвикция при переполнении — только под локом, вне горячего пути.</summary>
+    private void EvictIfFull(DateTimeOffset now)
+    {
+        if (_seen.Count < MaxEntries)
+            return;
 
         lock (_sweepGate)
         {
@@ -35,7 +64,6 @@ public sealed class InboxDeduplication(TimeSpan window, TimeProvider time)
                     foreach (var kv in oldest) _seen.TryRemove(kv.Key, out _);
                 }
             }
-            return _seen.TryAdd((messageId, consumer), now);
         }
     }
 

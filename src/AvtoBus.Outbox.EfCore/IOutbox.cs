@@ -1,9 +1,10 @@
+using AvtoBus;
 using Microsoft.EntityFrameworkCore;
 
 namespace AvtoBus.Outbox.EfCore;
 
 /// <summary>Куда адресован исходящий конверт (док 15, §2).</summary>
-public readonly record struct OutboxRoute(string Destination, string? Transport);
+public readonly record struct OutboxRoute(string Destination, string? Transport, DestinationKind Kind = DestinationKind.Queue);
 
 /// <summary>Транзакционный outbox: сообщение пишется в БД в одной транзакции с бизнес-данными.</summary>
 public interface IOutbox
@@ -47,6 +48,7 @@ public sealed class EfCoreOutbox<TDbContext> : IOutbox, IOutboxSink, IDisposable
             MessageId = env.MessageId,
             Destination = route.Destination,
             Transport = route.Transport ?? "",
+            Kind = (int)route.Kind,
             MessageType = env.MessageType,
             PartitionKey = env.PartitionKey,
             TenantId = env.TenantId,
@@ -64,4 +66,8 @@ public sealed class EfCoreOutbox<TDbContext> : IOutbox, IOutboxSink, IDisposable
     /// </summary>
     public ValueTask EnqueueAsync(Envelope env, string destination, string? transport, CancellationToken ct)
         => EnqueueAsync(env, new OutboxRoute(destination, transport), ct);
+
+    /// <summary>Вид назначения (очередь/топик) — без него топики теряли fan-out.</summary>
+    public ValueTask EnqueueAsync(Envelope env, string destination, string? transport, DestinationKind kind, CancellationToken ct)
+        => EnqueueAsync(env, new OutboxRoute(destination, transport, kind), ct);
 }

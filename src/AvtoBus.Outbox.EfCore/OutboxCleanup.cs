@@ -30,7 +30,7 @@ public sealed class OutboxCleanup : BackgroundService
                 var timeProvider = scope.ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
                 var cutoff = timeProvider.GetUtcNow().UtcDateTime - _opt.CleanupAfter;
 
-                await DeleteExpiredAsync(db, cutoff, stop).ConfigureAwait(false);
+                await DeleteExpiredAsync(db, cutoff, _opt.MaxPoisonAttempts, stop).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -56,19 +56,28 @@ public sealed class OutboxCleanup : BackgroundService
     }
 
     /// <summary>
-    /// Удаляет отправленные outbox и устаревшие inbox-записи старше <paramref name="cutoff"/>.
-    /// Вынесено отдельно, чтобы retention-поведение можно было проверить тестом без фонового цикла.
+    /// Удаляет отправленные outbox и устаревшие inbox-записи старше <paramref name="cutoff"/>,
+    /// а также вечно падающие (poison): без SentAt, попыток больше <paramref name="maxPoisonAttempts"/>,
+    /// созданы раньше cutoff. Без последнего таблица росла монотонно.
     /// </summary>
-    public static async Task DeleteExpiredAsync(DbContext db, DateTime cutoff, CancellationToken ct)
+    public static async Task DeleteExpiredAsync(DbContext db, DateTime cutoff, int maxPoisonAttempts, CancellationToken ct)
     {
         await db.Set<OutboxMessage>()
             .Where(o => o.SentAt != null && o.SentAt < cutoff)
+            .ExecuteDeleteAsync(ct).ConfigureAwait(false);
+
+        await db.Set<OutboxMessage>()
+            .Where(o => o.SentAt == null && o.Attempt >= maxPoisonAttempts && o.CreatedAt < cutoff)
             .ExecuteDeleteAsync(ct).ConfigureAwait(false);
 
         await db.Set<InboxRecord>()
             .Where(i => i.ProcessedAt < cutoff)
             .ExecuteDeleteAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>Совместимость: без лимита poison (только retention).</summary>
+    public static Task DeleteExpiredAsync(DbContext db, DateTime cutoff, CancellationToken ct)
+        => DeleteExpiredAsync(db, cutoff, int.MaxValue, ct);
 
     /// <summary>Таблица ещё не создана (гонка со SchemaMigrator): PG 42P01, SQLite «no such table».</summary>
     internal static bool IsMissingTable(Exception ex)

@@ -110,6 +110,91 @@ public class SecurityDecisionsTests
             OpaContext(), "   "));
     }
 
+    [Fact]
+    public void Opa_allow_substring_does_not_bypass()
+    {
+        // Приоритет ||/&& раньше разрешал любую политику <30 символов с подстрокой.
+        Assert.False(new RegoEvaluator().IsAllowed(
+            OpaContext(), "deny; allow { true }"));
+        Assert.True(new RegoEvaluator().IsAllowed(
+            OpaContext(), "allow { true }"));
+    }
+
+    [Fact]
+    public async Task Opa_audit_mode_passes_to_next_instead_of_dlq()
+    {
+        var deny = new DenyAllEvaluator();
+        var audit = new OpaAuthorizationMiddleware(deny, new OpaOptions { Policy = "deny all", FailClosed = false });
+        var nextCalled = false;
+        var ctx = OpaContext();
+        await audit.InvokeAsync(ctx, _ => { nextCalled = true; return ValueTask.CompletedTask; });
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(ConsumeOutcome.DeadLettered, ctx.Outcome);
+    }
+
+    [Fact]
+    public async Task Opa_enforce_mode_dead_letters_and_skips_next()
+    {
+        var deny = new DenyAllEvaluator();
+        var enforce = new OpaAuthorizationMiddleware(deny, new OpaOptions { Policy = "deny all", FailClosed = true });
+        var nextCalled = false;
+        var ctx = OpaContext();
+        await enforce.InvokeAsync(ctx, _ => { nextCalled = true; return ValueTask.CompletedTask; });
+
+        Assert.False(nextCalled);
+        Assert.Equal(ConsumeOutcome.DeadLettered, ctx.Outcome);
+    }
+
+    private sealed class DenyAllEvaluator : IOpaEvaluator
+    {
+        public bool IsAllowed(ConsumeContext ctx, string policy) => false;
+    }
+
+    [Fact]
+    public void Key_rotation_without_history_keeps_verifying()
+    {
+        var security = Security(o =>
+        {
+            o.MasterSecret = "rotation-secret";
+            o.RequireSignature = true;
+            o.KeyRotationInterval = TimeSpan.FromHours(1);
+            o.KeepPreviousKeyGenerations = 0;
+        });
+
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 30, 0, TimeSpan.Zero);
+        security.RotateKeysIfDue(t0 + TimeSpan.FromHours(1));
+        var signed = security.ProtectOutbound(NewEnvelope(), "svc");
+        // Без RefreshSnapshot stale-снапшот ломал всю проверку после первой ротации.
+        Assert.NotNull(security.OpenInbound(signed));
+
+        security.RotateKeysIfDue(t0 + TimeSpan.FromHours(2));
+        var signed2 = security.ProtectOutbound(NewEnvelope(), "svc");
+        Assert.NotNull(security.OpenInbound(signed2));
+    }
+
+    [Fact]
+    public void Decrypted_envelope_keeps_valid_signature()
+    {
+        var security = Security(o =>
+        {
+            o.MasterSecret = "enc-secret";
+            o.RequireSignature = true;
+            o.EncryptBody = true;
+        });
+
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.Name, "bob")], "test"));
+        var outgoing = security.ProtectOutbound(
+            NewEnvelope().WithHeader(BusHeaders.User, PrincipalSerializer.Serialize(principal)!), "svc");
+        var opened = security.OpenInbound(outgoing);
+
+        // Подпись была по шифртексту: после расшифровки перештамповываем,
+        // иначе SignedPrincipalExtractor отклонял бы свои же сообщения.
+        Assert.True(security.HasValidSignature(opened));
+        Assert.NotNull(new SignedPrincipalExtractor(security).Extract(opened));
+    }
+
     private static ConsumeContext OpaContext()
     {
         var env = NewEnvelope();

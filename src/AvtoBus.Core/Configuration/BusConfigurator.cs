@@ -233,8 +233,8 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
     // ---- Хендлеры -------------------------------------------------------
 
     /// <summary>
-    /// Находит в сборке всё, что похоже на хендлер: реализации <see cref="IConsumer{T}"/>
-    /// и статические/инстансные методы Handle/Consume (идея 1).
+    /// Каноническая регистрация хендлеров: находит в сборке статические методы <c>Handle</c>
+    /// (канонический стиль AvtoBus) и классы <see cref="IConsumer{T}"/> (стиль с DI-зависимостями).
     /// </summary>
     /// <remarks>Сканирование сборки через рефлексию — legacy-режим: несовместимо с trimming/AOT.
     /// Под AOT регистрируйте хендлеры явно через <c>AddConsumer&lt;T&gt;</c> с подключённым генератором.</remarks>
@@ -462,7 +462,10 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
            && type != typeof(Guid)
            && !type.IsEnum;
 
-    /// <summary>Уровень 3: хендлер-лямбда (Minimal API-стиль).</summary>
+    /// <summary>
+    /// Хендлер-лямбда (Minimal API-стиль): для тестов, прототипов и разовых подписок.
+    /// Прод-код — канонически: статический <c>Handle</c> + <c>AddConsumersFromAssembly</c>.
+    /// </summary>
     public BusConfigurator Subscribe<T>(Func<T, IServiceProvider, Task> handler) where T : class
     {
         Options.Dispatchers.Add(new DelegateDispatcher(
@@ -572,9 +575,15 @@ public sealed class BusConfigurator(IServiceCollection services, BusOptions opti
     private static JsonMessageSerializer NewJsonSerializer(JsonSerializerContext context)
         => new(context);
 
-    /// <summary>Включает дедупликацию входящих сообщений по MessageId (идея 156).</summary>
+    /// <summary>
+    /// Включает дедупликацию входящих сообщений по MessageId (идея 156).
+    /// Отрицательное окно запрещено; <c>TimeSpan.Zero</c> — дедуп фактически выключен
+    /// (окно нулевое, записи протухают сразу), для отключения просто не вызывайте метод.
+    /// </summary>
     public BusConfigurator UseInboxDeduplication(TimeSpan window)
     {
+        if (window < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(window), window, "Окно дедупликации не может быть отрицательным.");
         Options.InboxWindow = window;
         return this;
     }

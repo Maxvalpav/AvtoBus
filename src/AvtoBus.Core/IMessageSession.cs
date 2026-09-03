@@ -35,4 +35,12 @@ public interface IOutboxSink
 {
     /// <summary>Записывает конверт в outbox текущей (открытой) транзакции.</summary>
     ValueTask EnqueueAsync(Envelope envelope, string destination, string? transport, CancellationToken ct);
+
+    /// <summary>
+    /// Записывает конверт с видом назначения (очередь/топик). Дефолтная реализация
+    /// отбрасывает вид (legacy-поведение: всё в очередь) — провайдеры outbox
+    /// переопределяют, чтобы не терять fan-out топиков.
+    /// </summary>
+    ValueTask EnqueueAsync(Envelope envelope, string destination, string? transport, DestinationKind kind, CancellationToken ct)
+        => EnqueueAsync(envelope, destination, transport, ct);
 }

@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AvtoBus;
 using AvtoBus.Configuration;
 using AvtoBus.InMemory;
 using AvtoBus.Outbox.EfCore;
@@ -100,8 +101,7 @@ public sealed class OutboxPostgresTests
 
     [Fact]
     public async Task Outbox_and_business_data_commit_atomically()
-    {
-        var cs = await RequirePgAsync();
+    {        var cs = await RequirePgAsync();
         await using var db = new TestOutboxContext(Options(cs));
         await db.Database.EnsureCreatedAsync();
 
@@ -139,6 +139,106 @@ public sealed class OutboxPostgresTests
 
         Assert.False(await db.Business.AnyAsync());
         Assert.False(await db.Set<OutboxMessage>().AnyAsync());
+    }
+
+    [Fact]
+    public async Task Failed_send_marks_attempt_and_backoff_without_stalling_relay()
+    {
+        var cs = await RequirePgAsync();
+        await using (var db = new TestOutboxContext(Options(cs)))
+            await db.Database.EnsureCreatedAsync();
+
+        var env = NewEnvelope();
+        await EnqueueAsync(cs, new OutboxRoute("orders", null), env);
+
+        // Транспорт всегда падает: раньше failure-путь бросал InvalidOperationException
+        // (словарь в ExecuteUpdate не транслируется) и pump вставал навсегда.
+        var transport = new RecordingTransport(fail: true);
+        await using var provider = BuildRelayServices(cs, transport);
+        var relay = provider.GetRequiredService<OutboxRelay>();
+
+        await relay.StartAsync(CancellationToken.None);
+        try
+        {
+            AvtoBus.Outbox.EfCore.OutboxMessage? row = null;
+            Assert.True(await WaitUntilAsync(() =>
+            {
+                using var scope = provider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<TestOutboxContext>();
+                row = db.Set<AvtoBus.Outbox.EfCore.OutboxMessage>()
+                    .AsNoTracking().FirstOrDefault(o => o.MessageId == env.MessageId);
+                return row?.Attempt >= 1;
+            }, TimeSpan.FromSeconds(15)), "Relay не пометил неудачу.");
+
+            Assert.NotNull(row!.SendAfter);
+            Assert.True(row.SendAfter > DateTime.UtcNow, "Backoff должен отложить повтор.");
+            Assert.Contains("boom", row.LastError ?? "", StringComparison.Ordinal);
+            Assert.False(transport.Contains(env.MessageId));
+        }
+        finally
+        {
+            await relay.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Outbox_row_preserves_topic_kind_for_fanout()
+    {
+        var cs = await RequirePgAsync();
+        await using var db = new TestOutboxContext(Options(cs));
+        await db.Database.EnsureCreatedAsync();
+
+        var env = NewEnvelope();
+        await EnqueueAsync(cs, new OutboxRoute("orders.events", null, DestinationKind.Topic), env);
+
+        var row = await db.Set<AvtoBus.Outbox.EfCore.OutboxMessage>().SingleAsync(o => o.MessageId == env.MessageId);
+        Assert.Equal((int)DestinationKind.Topic, row.Kind);
+
+        // Миграция v2 применила колонку на реальной схеме.
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT column_name FROM information_schema.columns WHERE table_name='avtobus_outbox' AND column_name='Kind'";
+        Assert.Equal("Kind", await command.ExecuteScalarAsync());
+    }
+
+    [Fact]
+    public async Task Inbox_business_unique_conflict_is_not_swallowed_as_duplicate()
+    {
+        var cs = await RequirePgAsync();
+        var options = new DbContextOptionsBuilder<ConflictContext>().UseNpgsql(cs).Options;
+        await using (var db = new ConflictContext(options))
+            await db.Database.EnsureCreatedAsync();
+
+        // Первая доставка фиксирует бизнес-строку с Code=X.
+        await InvokeDedupAsync(cs, Guid.NewGuid(), "X");
+        // Вторая доставка ДРУГОГО сообщения с тем же Code: pre-check проходит,
+        // бизнес-INSERT падает на уникальности — обязано проброситься, а не молча ack.
+        await Assert.ThrowsAsync<DbUpdateException>(() => InvokeDedupAsync(cs, Guid.NewGuid(), "X"));
+    }
+
+    private static async Task InvokeDedupAsync(string cs, Guid messageId, string code)
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<ConflictContext>(o => o.UseNpgsql(cs));
+        services.AddScoped<DbContext>(sp => sp.GetRequiredService<ConflictContext>());
+        services.AddSingleton(TimeProvider.System);
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var middleware = new InboxDedupMiddleware("conflict-test");
+        var envelope = NewEnvelope() with { MessageId = messageId };
+        var context = new ConsumeContext(
+            envelope, new object(), scope.ServiceProvider, null!, CancellationToken.None)
+        { Source = TransportDestination.Queue("q") };
+
+        await middleware.InvokeAsync(context, async _ =>
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ConflictContext>();
+            db.Items.Add(new BusinessItem { Code = code });
+            await Task.CompletedTask;
+        });
     }
 
     [Fact]
@@ -530,7 +630,7 @@ internal sealed class TestOutboxContext(DbContextOptions<TestOutboxContext> opti
 }
 
 /// <summary>Записывает исходящие сообщения для проверки доставки relay (потокобезопасно).</summary>
-internal sealed class RecordingTransport(string name = "recording") : ITransport
+internal sealed class RecordingTransport(string name = "recording", bool fail = false) : ITransport
 {
     private readonly List<(Guid MessageId, string Destination)> _sent = [];
     private readonly object _sync = new();
@@ -559,6 +659,7 @@ internal sealed class RecordingTransport(string name = "recording") : ITransport
 
     public ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
     {
+        if (fail) throw new InvalidOperationException("boom");
         lock (_sync) _sent.Add((envelope.MessageId, destination.Name));
         return ValueTask.CompletedTask;
     }
@@ -575,4 +676,28 @@ internal sealed class RecordingTransport(string name = "recording") : ITransport
         => ValueTask.CompletedTask;
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+/// <summary>Бизнес-сущность с уникальным кодом — для проверки, что бизнес-конфликт не глушится как дубликат.</summary>
+internal sealed class BusinessItem
+{
+    public long Id { get; set; }
+    public string Code { get; set; } = "";
+}
+
+/// <summary>Изолированный контекст теста конфликтов: inbox-таблица + бизнес с уникальностью.</summary>
+internal sealed class ConflictContext(DbContextOptions<ConflictContext> options) : DbContext(options)
+{
+    public DbSet<BusinessItem> Items => Set<BusinessItem>();
+
+    protected override void OnModelCreating(ModelBuilder mb)
+    {
+        mb.ConfigureOutbox();
+        mb.Entity<BusinessItem>(e =>
+        {
+            e.ToTable("conflict_items");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Code).IsUnique();
+        });
+    }
 }

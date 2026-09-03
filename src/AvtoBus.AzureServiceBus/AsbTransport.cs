@@ -46,6 +46,12 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = new(StringComparer.Ordinal);
 
+    /// <summary>Живые сообщения с активным lock-renew: отмена всех при Dispose транспорта.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, AsbMessage> _liveMessages = new();
+
+    /// <summary>Отмена фоновых TrackLag-задач при Dispose.</summary>
+    private readonly CancellationTokenSource _trackCts = new();
+
     public async ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
     {
         await EnsureProvisionedAsync(destination, ct).ConfigureAwait(false);
@@ -119,7 +125,8 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
                     continue;
                 }
 
-                var message = new AsbMessage(receiver, received, envelope, path);
+                var message = new AsbMessage(receiver, received, envelope, path, OnMessageSettled);
+                _liveMessages[envelope.MessageId] = message;
                 yield return message;
             }
         }
@@ -128,6 +135,9 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             // В ASB нет «отписаться» — сообщения остаются в подписке; приёмник закрывается.
         }
     }
+
+    /// <summary>Снятие сообщения с учёта живых при settle (вызывается из AsbMessage).</summary>
+    private void OnMessageSettled(Guid messageId) => _liveMessages.TryRemove(messageId, out _);
 
     /// <summary>Путь к подписке группы: топик + подписка создаются идемпотентно.</summary>
     private async ValueTask<string> SubscriptionPathAsync(string topic, string group, CancellationToken ct)
@@ -160,24 +170,26 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             if (now - last < TimeSpan.FromSeconds(30)) return;
         }
         Interlocked.Exchange(ref _lastLagCheckTicks, now.UtcTicks);
+        var ct = _trackCts.Token;
         _ = Task.Run(async () =>
         {
             try
             {
+                ct.ThrowIfCancellationRequested();
                 if (path.Contains('/', StringComparison.Ordinal))
                 {
                     var parts = path.Split('/', 2);
-                    var props = await _admin.GetSubscriptionRuntimePropertiesAsync(parts[0], parts[1]).ConfigureAwait(false);
+                    var props = await _admin.GetSubscriptionRuntimePropertiesAsync(parts[0], parts[1], ct).ConfigureAwait(false);
                     _consumerLags[path] = props.Value.ActiveMessageCount;
                 }
                 else
                 {
-                    var props = await _admin.GetQueueRuntimePropertiesAsync(path).ConfigureAwait(false);
+                    var props = await _admin.GetQueueRuntimePropertiesAsync(path, ct).ConfigureAwait(false);
                     _consumerLags[path] = props.Value.ActiveMessageCount;
                 }
             }
             catch { }
-        });
+        }, ct);
     }
 
     public async ValueTask ProvisionAsync(
@@ -240,6 +252,13 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
+        // Гасим фоновые задачи: lock-renew брошенных сообщений и сбор метрик.
+        foreach (var live in _liveMessages.Values)
+            live.CancelRenew();
+        _liveMessages.Clear();
+        try { _trackCts.Cancel(); } catch { }
+        _trackCts.Dispose();
+
         foreach (var s in _senders.Values)
             s.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _client.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -261,15 +280,17 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
         private readonly ServiceBusReceiver _receiver;
         private readonly ServiceBusReceivedMessage _received;
         private readonly string _path;
+        private readonly Action<Guid> _onSettled;
         private readonly CancellationTokenSource _renewCts;
         private readonly Task _renewTask;
         private int _settled;
 
-        public AsbMessage(ServiceBusReceiver receiver, ServiceBusReceivedMessage received, Envelope envelope, string path)
+        public AsbMessage(ServiceBusReceiver receiver, ServiceBusReceivedMessage received, Envelope envelope, string path, Action<Guid> onSettled)
         {
             _receiver = receiver;
             _received = received;
             _path = path;
+            _onSettled = onSettled;
             Envelope = envelope;
 
             _renewCts = new CancellationTokenSource();
@@ -299,6 +320,15 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             }
         }
 
+        /// <summary>Останавливает lock-renew без settle (транспорт Dispose, брошенное сообщение).</summary>
+        internal void CancelRenew()
+        {
+            if (Interlocked.Exchange(ref _settled, 1) == 1)
+                return;
+            try { _renewCts.Cancel(); } catch { }
+            _renewCts.Dispose();
+        }
+
         public async ValueTask AcknowledgeAsync(CancellationToken ct = default)
         {
             if (Interlocked.Exchange(ref _settled, 1) == 1)
@@ -306,6 +336,7 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
 
             try { await _renewCts.CancelAsync().ConfigureAwait(false); } catch { }
             _renewCts.Dispose();
+            try { _onSettled(Envelope.MessageId); } catch { }
             await _receiver.CompleteMessageAsync(_received, ct).ConfigureAwait(false);
         }
 
@@ -316,6 +347,7 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
 
             try { await _renewCts.CancelAsync().ConfigureAwait(false); } catch { }
             _renewCts.Dispose();
+            try { _onSettled(Envelope.MessageId); } catch { }
 
             if (requeue)
             {

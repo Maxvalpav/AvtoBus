@@ -42,6 +42,7 @@ public static class SecurityServiceCollectionExtensions
 
         services.AddSingleton(options);
         services.AddSingleton(sp => new EnvelopeSecurity(sp.GetRequiredService<SecurityOptions>()));
+        services.AddSingleton<IEnvelopeSecurity>(sp => sp.GetRequiredService<EnvelopeSecurity>());
         // Fail-closed principal: раз безопасность подключена — неподписанному
         // avtobus-user больше не доверяем (заменяет HeaderPrincipalExtractor ядра).
         services.Replace(ServiceDescriptor.Singleton<IPrincipalExtractor, SignedPrincipalExtractor>());
@@ -80,6 +81,7 @@ public static class SecurityServiceCollectionExtensions
 
         configurator.EnvelopeSecurity = security;
         configurator.Services.AddSingleton(security);
+        configurator.Services.AddSingleton<IEnvelopeSecurity>(sp => sp.GetRequiredService<EnvelopeSecurity>());
         // Fail-closed principal (см. выше): неподписанному avtobus-user не доверяем.
         configurator.Services.Replace(ServiceDescriptor.Singleton<IPrincipalExtractor, SignedPrincipalExtractor>());
 

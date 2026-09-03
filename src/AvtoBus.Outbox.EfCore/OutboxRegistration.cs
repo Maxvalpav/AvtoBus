@@ -18,6 +18,7 @@ public static class OutboxRegistration
     {
         var opt = new OutboxOptions();
         configure?.Invoke(opt);
+        opt.Validate();
 
         bus.Services.AddSingleton(opt);
         bus.Services.AddSingleton<IOutboxSignal, ChannelOutboxSignal>();
@@ -38,6 +39,7 @@ public static class OutboxRegistration
         bus.Services.AddHostedService<OutboxCleanup>();
         // B12: схема outbox/inbox + таблица версий
         bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigration>();
+        bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigrationV2>();
         bus.Services.AddScoped<AvtoBus.Migrations.ISchemaExecutor>(sp => new AvtoBus.Outbox.EfCore.EfSchemaExecutor<TDb>(sp.GetRequiredService<TDb>()));
         bus.Services.AddHostedService<AvtoBus.Migrations.SchemaMigrator>();
         return bus;

@@ -68,7 +68,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
     /// <summary>Отправка одного Kafka-сообщения; транзакционная ветка — при exactly-once (идея 57).</summary>
     private async ValueTask SendMessageAsync(string topic, Message<string, byte[]> message, CancellationToken ct)
     {
-        await _producerGate.WaitAsync(ct);
+        await _producerGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             if (_options.ExactlyOnce)
@@ -82,7 +82,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                 _producer.BeginTransaction();
                 try
                 {
-                    await _producer.ProduceAsync(topic, message, ct);
+                    await _producer.ProduceAsync(topic, message, ct).ConfigureAwait(false);
                     _producer.CommitTransaction(TimeSpan.FromSeconds(30));
                 }
                 catch
@@ -93,7 +93,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
             }
             else
             {
-                await _producer.ProduceAsync(topic, message, ct);
+                await _producer.ProduceAsync(topic, message, ct).ConfigureAwait(false);
             }
         }
         finally

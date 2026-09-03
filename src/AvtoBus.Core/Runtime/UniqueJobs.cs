@@ -103,12 +103,16 @@ public sealed class InMemoryUniqueStore(TimeProvider? time = null) : IUniqueStor
 
 public static class UniqueKeyComputer
 {
+    // Один инстанс опций на процесс: new JsonSerializerOptions на каждое сообщение —
+    // дорогая аллокация (кэши метаданных сериализатора) на send-пути.
+    private static readonly JsonSerializerOptions StableOptions = new() { WriteIndented = false };
+
     public static string Compute<T>(T message, Type messageType, string destination, UniqueJobAttribute attr)
     {
         var prefix = attr.KeyPrefix ?? messageType.FullName ?? messageType.Name;
         if (!attr.ByArgs) return $"{prefix}::{destination}";
         // хэш тела: stable json hash
-        var json = JsonSerializer.Serialize(message, messageType, new JsonSerializerOptions { WriteIndented = false });
+        var json = JsonSerializer.Serialize(message, messageType, StableOptions);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..16];
         return attr.ByQueue ? $"{prefix}::{destination}::{hash}" : $"{prefix}::{hash}";
     }

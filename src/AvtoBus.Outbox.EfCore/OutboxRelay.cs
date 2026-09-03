@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using AvtoBus;
 using AvtoBus.Runtime;
 
 namespace AvtoBus.Outbox.EfCore;
@@ -141,7 +142,12 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                     {
                         var env = _ser.Deserialize(m.EnvelopeBlob);
                         var transport = _transports.Get(m.Transport.Length == 0 ? null : m.Transport);
-                        await transport.SendAsync(env, TransportDestination.Queue(m.Destination), token).ConfigureAwait(false);
+                        // Вид назначения хранится в строке: топик идёт в fan-out,
+                        // а не в одноимённую очередь (иначе подписчики ничего не получали).
+                        var destination = m.Kind == (int)DestinationKind.Topic
+                            ? TransportDestination.Topic(m.Destination)
+                            : TransportDestination.Queue(m.Destination);
+                        await transport.SendAsync(env, destination, token).ConfigureAwait(false);
                         lock (sent) sent.Add(m.Id);
                     }
                     catch (Exception ex)
@@ -172,23 +178,65 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
 
         if (failed.Count > 0)
         {
-            var failedIds = failed.Select(f => f.Id).ToList();
-            var failedMap = failed.ToDictionary(f => f.Id, f => f.Error);
+            // Индексер словаря failedMap[o.Id] НЕ транслируется EF в SQL (проверено на PG:
+            // InvalidOperationException при первой же неудаче — pump вставал навсегда).
+            // Поэтому один raw UPDATE с CASE: задержки считаем на клиенте (cap+jitter).
+            var failedIds = new HashSet<long>(failed.Select(f => f.Id));
+            var attempts = claimed.Where(m => failedIds.Contains(m.Id))
+                .ToDictionary(m => m.Id, m => m.Attempt);
             await using var failScope = _scopes.CreateAsyncScope();
             var failDb = failScope.ServiceProvider.GetRequiredService<DbContext>();
-            // Было 2^Attempt без cap — Attempt=20 давал ~12 суток и переполнение.
-            // Cap 1024с×jitter, общий потолок 1ч. jitter — константа батча (параметр запроса).
-            var jitterFactor = 0.8 + Random.Shared.NextDouble() * 0.4;
-            await failDb.Set<OutboxMessage>()
-                .Where(o => failedIds.Contains(o.Id))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(o => o.Attempt, o => o.Attempt + 1)
-                    .SetProperty(o => o.LastError, o => failedMap[o.Id])
-                    .SetProperty(o => o.SendAfter, o => DateTime.UtcNow.AddSeconds(Math.Min(Math.Pow(2, o.Attempt) * jitterFactor, 3600)))
-                    .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
-                .ConfigureAwait(false);
+            await MarkFailedAsync(failDb, failed, attempts, CancellationToken.None).ConfigureAwait(false);
         }
 
         return claimed.Count;
+    }
+
+    /// <summary>
+    /// Batch-mark failed: Attempt+1, per-row LastError и SendAfter (2^Attempt с cap 1ч + jitter ±20%).
+    /// Один roundtrip вместо N обновлений; CASE обходит нетранслируемость словаря в EF.
+    /// </summary>
+    internal static async Task MarkFailedAsync(
+        DbContext db,
+        IReadOnlyCollection<(long Id, string Error)> failed,
+        IReadOnlyDictionary<long, int> attempts,
+        CancellationToken ct)
+    {
+        var sql = new System.Text.StringBuilder(
+            "UPDATE avtobus_outbox SET \"Attempt\" = \"Attempt\" + 1, \"ClaimedAt\" = NULL, \"SendAfter\" = CASE \"Id\" ");
+        var err = new System.Text.StringBuilder("CASE \"Id\" ");
+        var ids = new System.Text.StringBuilder();
+
+        // Параметры провайдер-нейтральные (без зависимости на Npgsql): через фабрику соединения.
+        var factory = System.Data.Common.DbProviderFactories.GetFactory(db.Database.GetDbConnection())
+            ?? throw new InvalidOperationException("Провайдер БД не найден.");
+        var pars = new List<object>();
+        void AddParam(string name, object value)
+        {
+            System.Data.Common.DbParameter p = factory.CreateParameter()
+                ?? throw new InvalidOperationException("Провайдер не создал параметр.");
+            p.ParameterName = name;
+            p.Value = value;
+            pars.Add(p);
+        }
+
+        var i = 0;
+        foreach (var (id, error) in failed)
+        {
+            attempts.TryGetValue(id, out var attempt);
+            // Было 2^Attempt без cap — Attempt=20 давал ~12 суток и переполнение.
+            var delaySeconds = Math.Min(Math.Pow(2, Math.Min(attempt, 10)) * (0.8 + Random.Shared.NextDouble() * 0.4), 3600);
+            var sendAfter = DateTime.UtcNow.AddSeconds(delaySeconds);
+            sql.Append($"WHEN @id{i} THEN @sa{i} ");
+            err.Append($"WHEN @id{i} THEN @err{i} ");
+            ids.Append(i == 0 ? $"@id{i}" : $", @id{i}");
+            AddParam($"@id{i}", id);
+            AddParam($"@sa{i}", sendAfter);
+            AddParam($"@err{i}", error);
+            i++;
+        }
+        sql.Append("ELSE \"SendAfter\" END, \"LastError\" = ").Append(err).Append("ELSE \"LastError\" END WHERE \"Id\" IN (").Append(ids).Append(')');
+
+        await db.Database.ExecuteSqlRawAsync(sql.ToString(), pars.ToArray(), ct).ConfigureAwait(false);
     }
 }

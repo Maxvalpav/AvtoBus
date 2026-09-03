@@ -34,7 +34,9 @@ public sealed class RegoEvaluator : IOpaEvaluator
         // deny, чтобы прямой вызов эвалуатора тоже был fail-closed.
         if (string.IsNullOrWhiteSpace(policy)) return false;
         var trimmed = policy.Trim();
-        if (trimmed == "allow { true }" || trimmed.Contains("allow { true }", StringComparison.Ordinal) && trimmed.Length < 30)
+        // Только точное совпадение: `||`/`&&` приоритет давал обход через подстроку
+        // ("deny; allow { true }" длиной <30 раньше разрешал).
+        if (trimmed == "allow { true }")
             return true;
 
         // Check explicit tenant/role rules before generic deny
@@ -75,11 +77,16 @@ public sealed class OpaAuthorizationMiddleware(IOpaEvaluator eval, OpaOptions op
         var allowed = eval.IsAllowed(context, opts.Policy);
         if (!allowed)
         {
+            // Audit-режим (FailClosed=false) — пропускаем дальше с пометкой, а не в DLQ:
+            // иначе «наблюдение» работало бы как enforce и теряло сообщения.
+            if (!opts.FailClosed)
+            {
+                logger?.LogWarning("Policy audit-allow {Policy} for {MessageType} {MessageId}", opts.Policy, context.Envelope.MessageType, context.Envelope.MessageId);
+                return next(context);
+            }
+
             logger?.LogWarning("Policy deny {Policy} for {MessageType} {MessageId}", opts.Policy, context.Envelope.MessageType, context.Envelope.MessageId);
-            if (opts.FailClosed)
-                context.DeadLetter($"Policy deny: {opts.Policy}");
-            else
-                context.DeadLetter($"Policy deny (audit): {opts.Policy}");
+            context.DeadLetter($"Policy deny: {opts.Policy}");
             return ValueTask.CompletedTask;
         }
 

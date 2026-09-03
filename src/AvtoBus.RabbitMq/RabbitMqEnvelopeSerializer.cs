@@ -42,7 +42,7 @@ public static class RabbitMqEnvelopeSerializer
     /// Записывает конверт в AMQP <see cref="BasicProperties"/> + тело. Публикация идёт
     /// с publisher confirms, поэтому persistent-сообщения не теряются при рестарте брокера.
     /// </summary>
-    public static (BasicProperties Properties, byte[] Body) ToRabbitMq(Envelope envelope)
+    public static (BasicProperties Properties, ReadOnlyMemory<byte> Body) ToRabbitMq(Envelope envelope)
     {
         var headers = new Dictionary<string, object?>
         {
@@ -88,7 +88,7 @@ public static class RabbitMqEnvelopeSerializer
         if (envelope.TimeToLive is { } timeToLive)
             properties.Expiration = ((long)timeToLive.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
 
-        return (properties, envelope.Body.ToArray());
+        return (properties, envelope.Body);
     }
 
     /// <summary>

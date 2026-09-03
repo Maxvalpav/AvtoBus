@@ -29,6 +29,15 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     public SqlTransport(SqlOptions options)
     {
         _options = options;
+        // Fail-fast вместо тихого stall/спина/дублей: BatchSize<=0 вечно ничего не читает,
+        // ListenTimeout<=0 крутит цикл без сна (100% CPU), ReclaimTimeout<=0 отдаёт
+        // свежезаклеймленные другим консьюмерам.
+        if (options.BatchSize < 1)
+            throw new ArgumentOutOfRangeException(nameof(options), "SqlOptions.BatchSize должен быть >= 1.");
+        if (options.ListenTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(options), "SqlOptions.ListenTimeout должен быть > 0.");
+        if (options.ReclaimTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(options), "SqlOptions.ReclaimTimeout должен быть > 0.");
         var builder = new NpgsqlDataSourceBuilder(options.ConnectionString);
         _dataSource = builder.Build();
     }
@@ -224,9 +233,11 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         if (result.Count > 0)
         {
             // Помечаем как доставленные, чтобы другой консьюмер не подхватил.
+            // Обновляем ВСЕ выбранные строки (включая stale-перезахват): фильтр только
+            // по claimed_at IS NULL оставлял зависшие без продления claim — вечные дубли.
             var ids = result.Select(r => r.Id).ToArray();
             await using var claim = new NpgsqlCommand(
-                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id = ANY(@ids) AND claimed_at IS NULL",
+                $"UPDATE {table} SET claimed_at = NOW(), claimed_by = @consumer WHERE id = ANY(@ids)",
                 connection, transaction);
             claim.Parameters.AddWithValue("consumer", consumerName);
             claim.Parameters.AddWithValue("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Bigint, ids);
@@ -375,17 +386,20 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     {
         await using var command = new NpgsqlCommand(
             $"""
-             CREATE TABLE IF NOT EXISTS {table} (
-                 id BIGSERIAL PRIMARY KEY,
-                 envelope BYTEA NOT NULL,
-                 visible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                 claimed_at TIMESTAMPTZ,
-                 claimed_by TEXT,
-                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-             );
-             CREATE INDEX IF NOT EXISTS ix_{Sanitize(table)}_visible
-                 ON {table}(visible_at) WHERE claimed_at IS NULL;
-             """, connection);
+              CREATE TABLE IF NOT EXISTS {table} (
+                  id BIGSERIAL PRIMARY KEY,
+                  envelope BYTEA NOT NULL,
+                  visible_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  claimed_at TIMESTAMPTZ,
+                  claimed_by TEXT,
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+              -- Покрывающий индекс под claim-запрос (WHERE visible_at + claimed_at, ORDER BY id):
+              -- старый индекс только по visible_at не покрывал предикат и сортировку.
+              DROP INDEX IF EXISTS ix_{Sanitize(table)}_visible;
+              CREATE INDEX IF NOT EXISTS ix_{Sanitize(table)}_claim
+                  ON {table}(visible_at, claimed_at, id);
+              """, connection);
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 

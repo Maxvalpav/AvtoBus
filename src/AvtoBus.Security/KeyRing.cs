@@ -62,6 +62,9 @@ public sealed class KeyRing
                     if (!ReferenceEquals(old, next)) old.Clear();
                 _generations.Clear();
                 _generations[epoch] = next;
+                // Без RefreshSnapshot stale-снапшот (1==1 по длине) подменял бы актуальный —
+                // вся проверка падала после первой ротации при KeepPrevious=0.
+                RefreshSnapshot();
                 return;
             }
 
