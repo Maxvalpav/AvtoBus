@@ -99,7 +99,7 @@ dotnet build
 dotnet test
 ```
 
-Требуется .NET 10 SDK. Как вносить изменения — [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Требуется .NET 10 SDK.
 
 ## 📄 Лицензия
 
