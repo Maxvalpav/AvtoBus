@@ -15,6 +15,10 @@ public sealed class BloblangOptions
     public bool FailOnError { get; set; } = false;
 }
 
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с NativeAOT.")]
 public sealed class BloblangMiddleware : IBusMiddleware
 {
     private readonly BloblangOptions _opts;
@@ -144,6 +148,10 @@ public sealed class BloblangMiddleware : IBusMiddleware
 }
 
 /// <summary>Также используется как producer-side трансформ: `bus.PublishAsync(msg)` -> Bloblang -> транспорт.</summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с NativeAOT.")]
 public sealed class BloblangProducerTransformer(BloblangOptions opts)
 {
     public byte[] Transform(byte[] body, string contentType)
@@ -163,6 +171,10 @@ public sealed class BloblangProducerTransformer(BloblangOptions opts)
 public static class BloblangExtensions
 {
     /// <summary>Пример: `bus.UseBloblang("root.total = this.total * 1.2")`</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Bloblang-маппинг сериализует произвольные сообщения через reflection-STJ — несовместимо с NativeAOT.")]
     public static BusConfigurator UseBloblang(this BusConfigurator bus, string mapping, bool failOnError = false)
     {
         var opts = new BloblangOptions { Mapping = mapping, FailOnError = failOnError };

@@ -55,6 +55,7 @@ public static class HandlerBinder
     /// <see cref="ConsumeContext"/> и scoped-контейнера.
     /// </summary>
     [RequiresUnreferencedCode("Компиляция вызова хендлера через Expression — reflection-путь (legacy).")]
+    [RequiresDynamicCode("Компиляция вызова хендлера через Expression.Compile — reflection-путь (legacy).")]
     public static IMessageDispatcher Bind(MethodInfo method)
     {
         var messageType = MessageTypeOf(method);

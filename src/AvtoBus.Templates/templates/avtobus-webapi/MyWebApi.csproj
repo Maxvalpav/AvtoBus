@@ -6,6 +6,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>MyWebApi</RootNamespace>
     <IsPackable>false</IsPackable>
+    <!-- Контент шаблона, не часть сборки: вне CPM и lock-файлов. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>

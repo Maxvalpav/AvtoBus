@@ -38,6 +38,9 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
     /// Async-версия <see cref="Create"/>: подпись/лимит без блокировки потока.
     /// Горячий путь отправки (<c>AvtoBusClient</c>, <c>MessageSession</c>) идёт только сюда.
     /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Разбор [PartitionKey]/[MessageAttribute] — метаданные контракта через рефлексию (legacy-режим, " +
+        "док 01 §codegen). Сериализация тела при зарегистрированном контексте AOT-safe.")]
     public async ValueTask<Envelope> CreateAsync(
         object message, Type messageType, MessageOptions? messageOptions, Envelope? parent,
         CancellationToken ct = default)
@@ -50,6 +53,9 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
         return envelope;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Разбор [PartitionKey]/[MessageAttribute] — метаданные контракта через рефлексию (legacy-режим, " +
+        "док 01 §codegen). Сериализация тела при зарегистрированном контексте AOT-safe.")]
     private Envelope BuildEnvelope(object message, Type messageType, MessageOptions? messageOptions, Envelope? parent)
     {
         var serializer = options.Serializers.Default;

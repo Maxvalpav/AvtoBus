@@ -190,7 +190,8 @@ public sealed class InMemoryEventStore : IEventStore
     {
         if (metadata.Count == 0)
             return ReadOnlyMemory<byte>.Empty;
-        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(metadata);
+        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            metadata, EventSourcingJsonContext.Default.DictionaryStringString);
     }
 
     private static Guid? ParseGuid(string? s) => Guid.TryParse(s, out var g) ? g : null;

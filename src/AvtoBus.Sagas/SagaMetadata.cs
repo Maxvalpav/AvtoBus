@@ -8,7 +8,15 @@ namespace AvtoBus.Sagas;
 /// Метаданные саги: корреляции из <see cref="Saga{TState}.Correlate"/>, инварианты и
 /// диспетчеризация в конкретный <c>Handle(T)</c>. Строятся один раз при регистрации.
 /// </summary>
-internal sealed class SagaMetadata<TSaga, TState>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Метаданные строятся сканированием методов саги и компиляцией вызовов через Expression — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Диспетчеры саги компилируются через Expression.Compile — несовместимо с NativeAOT.")]
+internal sealed class SagaMetadata<
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods |
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] TSaga,
+    TState>
     where TSaga : Saga<TState>, new()
     where TState : SagaState, new()
 {

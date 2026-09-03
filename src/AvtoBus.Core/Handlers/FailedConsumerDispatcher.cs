@@ -35,6 +35,7 @@ public static class FailedHandlerBinder
            && method.GetParameters()[0].ParameterType.GetGenericTypeDefinition() == typeof(IFailed<>);
 
     [RequiresUnreferencedCode("Компиляция вызова второй линии обороны — reflection-путь (legacy).")]
+    [RequiresDynamicCode("Компиляция вызова второй линии обороны через Expression.Compile — reflection-путь (legacy).")]
     public static IFailedConsumerDispatcher BindMethod(MethodInfo method)
     {
         var messageType = method.GetParameters()[0].ParameterType.GetGenericArguments()[0];
@@ -46,6 +47,7 @@ public static class FailedHandlerBinder
     }
 
     [RequiresUnreferencedCode("Компиляция вызова второй линии обороны — reflection-путь (legacy).")]
+    [RequiresDynamicCode("Компиляция вызова второй линии обороны через Expression.Compile — reflection-путь (legacy).")]
     public static IFailedConsumerDispatcher BindInterface(Type handlerType, Type messageType, MethodInfo method)
     {
         var handlerName = $"{handlerType.Name}.{method.Name}";
@@ -56,6 +58,7 @@ public static class FailedHandlerBinder
     }
 
     [RequiresUnreferencedCode("Построение вызова через Expression — reflection-путь (legacy).")]
+    [RequiresDynamicCode("Построение вызова через Expression.Compile — reflection-путь (legacy).")]
     private static Func<object?, object, ConsumeContext, object?> Compile(
         MethodInfo method,
         Type messageType,

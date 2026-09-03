@@ -27,6 +27,10 @@ public sealed class WorkflowScheduleHandle(string id, WorkflowScheduleSpec spec,
 {
     public string Id => id;
     public WorkflowScheduleSpec Spec => spec;
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Ручной триггер персистит произвольный payload в историю — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Ручной триггер персистит произвольный payload через reflection-STJ — несовместимо с NativeAOT.")]
     public async Task TriggerManuallyAsync(object input, CancellationToken ct)
     {
         await store.AppendHistoryAsync([new WorkflowHistoryEvent

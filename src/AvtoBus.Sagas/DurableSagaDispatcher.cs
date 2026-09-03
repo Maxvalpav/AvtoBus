@@ -16,6 +16,10 @@ internal sealed class DurableSagaDispatcher : IMessageDispatcher
     private readonly Type _messageType;
     private readonly Func<object, string> _keyAccessor;
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Диспетчер создаётся только через аннотированный AddDurableSaga.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Диспетчер создаётся только через аннотированный AddDurableSaga.")]
     public DurableSagaDispatcher(Type sagaType, Type messageType)
     {
         _sagaType = sagaType;
@@ -42,11 +46,19 @@ public static class DurableSagaRegistration
     /// Регистрирует durable-сагу: журнал, раннер и по одному диспетчеру на каждый
     /// заявленный тип сообщения (триггер + все сообщения, которые сага ждёт через WaitFor).
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Durable-саги компилируют вызовы через Expression и персистят шаги через reflection-STJ — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Durable-саги компилируют вызовы через Expression.Compile — несовместимо с NativeAOT.")]
     public static BusConfigurator AddDurableSaga<TSaga>(this BusConfigurator bus, params Type[] messageTypes)
         where TSaga : class
         => bus.AddDurableSaga(typeof(TSaga), messageTypes);
 
     /// <summary>Не-generic версия для статических durable-саг (static класс нельзя в generic-параметр).</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Durable-саги компилируют вызовы через Expression и персистят шаги через reflection-STJ — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Durable-саги компилируют вызовы через Expression.Compile — несовместимо с NativeAOT.")]
     public static BusConfigurator AddDurableSaga(this BusConfigurator bus, Type sagaType, params Type[] messageTypes)
     {
         // Триггер выводим из первого параметра stat-метода Run/Execute, если не указан явно.

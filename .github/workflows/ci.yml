@@ -61,7 +61,7 @@ jobs:
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
-        run: dotnet restore AvtoBus.slnx
+        run: dotnet restore AvtoBus.slnx --locked-mode
 
       - name: Build
         run: dotnet build AvtoBus.slnx -c Release --no-restore
@@ -165,7 +165,7 @@ jobs:
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
-        run: dotnet restore samples/AvtoBus.Logistics/AvtoBus.Logistics.slnx
+        run: dotnet restore samples/AvtoBus.Logistics/AvtoBus.Logistics.slnx --locked-mode
 
       - name: Build
         run: dotnet build samples/AvtoBus.Logistics/AvtoBus.Logistics.slnx -c Release --no-restore
@@ -202,7 +202,7 @@ jobs:
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
-        run: dotnet restore AvtoBus.slnx
+        run: dotnet restore AvtoBus.slnx --locked-mode
 
       - name: Publish AOT sample (InMemory)
         run: |
@@ -275,7 +275,7 @@ jobs:
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
-        run: dotnet restore AvtoBus.slnx
+        run: dotnet restore AvtoBus.slnx --locked-mode
 
       - name: Build
         run: dotnet build AvtoBus.slnx -c Release --no-restore

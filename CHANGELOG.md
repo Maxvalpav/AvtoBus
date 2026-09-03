@@ -5,6 +5,50 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-03 — аудит-харденинг: безопасность, порядок, воспроизводимость
+
+### Безопасность (breaking для preview: wire-формат подписи)
+
+- Подпись конвертов **v3**: подписанная метка `avtobus-signed-at`, окно валидности
+`MaxSignatureAge` (5 мин) + `MaxClockSkew` (1 мин) — граница переигрывания (anti-replay).
+Исходящие по умолчанию v3, входящие принимаются v2/v3 (`MinimumSignatureVersion = 2`).
+- `KeyRing`: HKDF-SHA256 вместо PBKDF2 для мастер-секрета; допуск проверки на эпоху
+вперёд (рассинхрон часов); `CurrentKeyEpoch` для диагностики.
+- `SECURITY.md`: версии, приватный репорт, threat model, production-чеклист, ранбук ротации.
+
+### Корректность доставки
+
+- Outbox: партиционные лизы (`avtobus_outbox_leases`, миграция v3, `PartitionLeaseTtl`) —
+FIFO per `PartitionKey` при любом числе relay (порядок фаз peek → acquire → claim);
+head-of-line внутри ключа + ожидание подписчиков вместе с головой; бесключевые идут дальше.
+- `ConsumerHost`: атомарный снапшот ранеров вместо живого `List` (гонка метрик/health на старте).
+- Request/response слушает reply-очередь на **каждом** транспорте, а не только на default.
+- `InboxDedupMiddleware`: игнор недоверенного заголовка `consumer`, типизированный
+`InboxDedupMiddleware<TDbContext>`, классификация уникальных нарушений по SqlState/кодам
+вместо текста ошибки.
+- `ProductionDefaults()`: fail-fast при `MasterSecret`/`OutboundRatePerSecond` без security-пакета.
+
+### Наблюдаемость и эксплуатация
+
+- Метрика `avtobus.outbox.oldest_pending_age` + DB-backed `avtobus.outbox.pending`
+(`IOutboxHealthProvider`, refresh на простое); Grafana-панели, алерт `AvtoBusOutboxOldestStuck`,
+раздел runbook.
+- `AvtoBusClient.CancelScheduledAsync` логирует несработавшие отмены вместо молчания.
+
+### Сборка и supply chain
+
+- `IsAotCompatible` для шиппаемых библиотек: trim/AOT-анализаторы — ворота сборки
+(аннотации динамических фич, source-gen контексты для DTO сериализаторов, `dynamic` убран из Kafka).
+- `packages.lock.json` + `--locked-mode` в CI; `global.json` — `latestPatch`;
+MinVer-only версии (у taskVersionPrefix удалён); CI vulnerable-gate реально падает.
+- `Directory.Build.props`: починка XML-комментария с `--` (ломал restore).
+
+### Тесты
+
+- Chaos на живом PostgreSQL: флэп транспорта (backoff → восстановление без потерь),
+передача эстафеты упавшего relay, DB-backed pending/oldest, порядок двумя relay на одном ключе.
+- Регрессия мультитранспортного request/response; метрики gauge-тестами.
+
 ## [0.1.1] - 2026-09-02 — DataProfile + readonly + helm
 
 ### Добавлено

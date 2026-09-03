@@ -35,6 +35,10 @@ public sealed class AsyncApiGenerator
     /// <summary>Типы сообщений, для которых есть хендлеры (без дубликатов).</summary>
     public IEnumerable<Type> MessageTypes => _dispatchers.HandledTypes.OrderBy(t => t.FullName, StringComparer.Ordinal);
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Генерация схем сканирует свойства контрактов через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Генерация документа сериализует произвольные контракты через reflection-STJ — несовместимо с NativeAOT.")]
     public string Generate()
     {
         var doc = new Dictionary<string, object>
@@ -153,6 +157,8 @@ public sealed class AsyncApiGenerator
         return schemas;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification =
+        "Вызывается только из Generate (аннотирован RUC): типы контрактов сохраняет приложение.")]
     private static object BuildSchema(Type type)
     {
         var properties = new Dictionary<string, object>();

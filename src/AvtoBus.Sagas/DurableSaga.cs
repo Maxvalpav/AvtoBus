@@ -146,6 +146,10 @@ public sealed class DurableSagaContext : ISagaContext
         await _bus.ScheduleAsync(timeoutMsg, DateTimeOffset.UtcNow + delay);
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Durable-журнал персистит произвольный TResult шага: типы шагов сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Durable-журнал персистит произвольный TResult шага: типы шагов сохраняет приложение.")]
     public async ValueTask<TResult> Step<TResult>(Func<Task<TResult>> action, Func<TResult, Task>? compensate = null)
     {
         // Replay: результат уже в журнале — действие не выполняется.
@@ -168,6 +172,10 @@ public sealed class DurableSagaContext : ISagaContext
         return result;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Durable-журнал персистит payload ожидания: типы сообщений сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Durable-журнал персистит payload ожидания: типы сообщений сохраняет приложение.")]
     public async ValueTask<T?> WaitFor<T>(TimeSpan? timeout = null) where T : class
     {
         // Replay: ожидание уже состоялось (или приостановлено) — берём сохранённый Payload.
@@ -198,6 +206,10 @@ public sealed class DurableSagaAttribute : Attribute
 /// Каталог durable-саг: entrypoint (статический Run/Execute(trigger, ISagaContext)) и
 /// акссессор ключа корреляции. Строится один раз, кэшируется по (sagaType, messageType).
 /// </summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Каталог сканирует методы саги и компилирует вызовы через Expression — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Каталог компилирует вызовы саги через Expression.Compile — несовместимо с NativeAOT.")]
 public static class SagaCatalog
 {
     private static readonly ConcurrentDictionary<Type, Entrypoint> Entrypoints = new();
@@ -220,6 +232,8 @@ public static class SagaCatalog
         => KeyAccessors.GetOrAdd((sagaType, messageType), _ => BuildKeyAccessor(sagaType, messageType));
 
     /// <summary>Выводит тип триггера по первому параметру Run/Execute. Используется при самодиагностике.</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Сканирование методов саги — только из SagaCatalog.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Сканирование методов саги — только из SagaCatalog.")]
     private static Type InferTriggerType(Type sagaType)
     {
         var method = sagaType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
@@ -234,6 +248,8 @@ public static class SagaCatalog
         return method.GetParameters()[0].ParameterType;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Компиляция entrypoint саги — только из SagaCatalog.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Компиляция entrypoint саги — только из SagaCatalog.")]
     private static Entrypoint BuildEntrypoint(Type sagaType, Type messageType)
     {
         var method = sagaType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
@@ -262,6 +278,8 @@ public static class SagaCatalog
         return (message, context) => func(message, context);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Компиляция акссессора ключа — только из SagaCatalog.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Компиляция акссессора ключа — только из SagaCatalog.")]
     private static Func<object, string> BuildKeyAccessor(Type sagaType, Type messageType)
     {
         var attribute = sagaType.GetCustomAttribute<DurableSagaAttribute>()
@@ -296,6 +314,10 @@ public sealed class DurableSagaRunner
     public DurableSagaRunner(ISagaJournalStore store, IBus bus)
         => (_store, _bus) = (store, bus);
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Раннер создаётся только через аннотированный AddDurableSaga: типы саги сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Раннер создаётся только через аннотированный AddDurableSaga: типы саги сохраняет приложение.")]
     public async Task<SagaOutcome> DispatchAsync(Type sagaType, object message, string correlationKey, ConsumeContext? consume = null)
     {
         var ct = consume?.CancellationToken ?? CancellationToken.None;
@@ -335,6 +357,10 @@ public sealed class DurableSagaRunner
     }
 
     /// <summary>Если есть ожидающее WaitRecord типа сообщения — кладём в него payload из сообщения.</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Payload ожидания сериализуется через reflection-STJ — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Payload ожидания сериализуется через reflection-STJ — несовместимо с NativeAOT.")]
     private void BindIncoming(SagaJournal journal, object message, CancellationToken ct)
     {
         var messageFullName = message.GetType().FullName;

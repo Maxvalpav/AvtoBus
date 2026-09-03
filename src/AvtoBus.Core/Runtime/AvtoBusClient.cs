@@ -96,6 +96,18 @@ public sealed class AvtoBusClient(
     }
 
     /// <summary>
+    /// Хэш дедупликации UniqueJobs — изолированная точка подавления trim-предупреждений:
+    /// путь opt-in (только при UseUniqueJobs + атрибуте), хэш детерминирован даже при
+    /// усечённой сериализации (дедуп становится грубее, но не ломается и не теряет данные).
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Opt-in UniqueJobs: хэш тела детерминирован при любой сериализации; худший исход trimming — пропущенный дедуп, не потеря данных.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Opt-in UniqueJobs: хэш тела детерминирован при любой сериализации; худший исход — пропущенный дедуп, не потеря данных.")]
+    private static string ComputeUniqueKey(object message, Type messageType, string destination, UniqueJobAttribute attr)
+        => UniqueKeyComputer.Compute(message, messageType, destination, attr);
+
+    /// <summary>
     /// Отправляет одно сообщение. Общий путь для publish/send/respond и для каскадов из хендлеров.
     /// </summary>
     internal async ValueTask DispatchAsync(
@@ -133,7 +145,7 @@ public sealed class AvtoBusClient(
                         dest = iso.Isolate(dest, tid);
                     else if (options.TenantIsolationPolicy is { } iso2 && TenantContext.Get() is { } tid2)
                         dest = iso2.Isolate(dest, tid2);
-                    var key = UniqueKeyComputer.Compute(message, messageType, dest.Name ?? dest.ToString() ?? "", attr);
+                    var key = ComputeUniqueKey(message, messageType, dest.Name ?? dest.ToString() ?? "", attr);
                     if (!uniqueStore.TryAcquire(key, attr.Period))
                     {
                         if (attr.OnConflict == UniqueConflictBehavior.Throw)

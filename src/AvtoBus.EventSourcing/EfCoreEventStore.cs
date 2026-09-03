@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -260,7 +261,8 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
     private static byte[] SerializeMetadata(Dictionary<string, string> metadata)
         => metadata.Count == 0
             ? []
-            : System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(metadata);
+            : System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                metadata, EventSourcingJsonContext.Default.DictionaryStringString);
 
     private static Guid? ParseGuid(string? s) => Guid.TryParse(s, out var g) ? g : null;
 
@@ -270,7 +272,7 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
         if (inner is null) return false;
         if (inner.GetType().Name == "PostgresException")
         {
-            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            var sqlState = GetSqlState(inner);
             if (sqlState == "23505") return true; // any unique violation → concurrency (stream version)
         }
         // Fallback generic: SQLite / other providers
@@ -278,4 +280,16 @@ public sealed class EfCoreEventStore<TDb> : IEventStore
             || inner.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
             || inner.Message.Contains("uq_stream", StringComparison.OrdinalIgnoreCase);
     }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "Провайдер-нейтральный сниффинг PostgresException.SqlState без зависимости на Npgsql; " +
+        "читается только строковый код состояния, типы приложения не затрагиваются.")]
+    private static string? GetSqlState(Exception inner)
+        => inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+}
+
+/// <summary>Source-generated контекст для служебных словарей стора (аудит D5, trim-safe).</summary>
+[JsonSerializable(typeof(Dictionary<string, string>))]
+internal sealed partial class EventSourcingJsonContext : JsonSerializerContext
+{
 }

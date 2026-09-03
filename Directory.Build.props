@@ -13,9 +13,16 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>CS1591;CS1573;CS1574;CS1734;NU5128</WarningsNotAsErrors>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Аудит D5: trim/AOT-анализаторы на уровне шиппаемых библиотек.
+         Тесты/бенчмарки/семплы/шаблоны не анализируем: они намеренно вызывают
+         reflection-API. Условие по имени/пути — IsPackable в props ещё не видно. -->
+    <IsAotCompatible Condition="'$(IsAotCompatible)' == '' and $(MSBuildProjectName.Contains('Tests')) != 'true' and $(MSBuildProjectName.Contains('Benchmarks')) != 'true' and $(MSBuildProjectDirectory.Contains('samples')) != 'true' and $(MSBuildProjectDirectory.Contains('Templates')) != 'true'">true</IsAotCompatible>
     <!-- Аудит D1: ворота уязвимостей. С TreatWarningsAsErrors NU1901–NU1904 становятся ошибками сборки. -->
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
+    <!-- Аудит D2: детерминированный restore. Lock-файлы коммитятся;
+         CI проверяет locked mode, Dependabot-регены — обязанность автора PR. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <PropertyGroup Label="Package metadata">

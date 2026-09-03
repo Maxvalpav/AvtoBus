@@ -6,6 +6,10 @@ namespace AvtoBus.Canvas;
 /// <summary>
 /// Canvas: компоновка сообщений как конвейер: chain — последовательно, group — параллельно, chord — group + callback.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Canvas сериализует шаги по Type во время выполнения и диспатчит через MakeGenericMethod — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Canvas диспатчит шаги через MakeGenericMethod во время выполнения — несовместимо с NativeAOT.")]
 public sealed class CanvasChain
 {
     private readonly List<(object message, Type type)> _steps = [];
@@ -132,7 +136,15 @@ public sealed class InMemoryChordStore : IChordStore
 /// <summary>Фасад компоновки: chain / group / chord.</summary>
 public static class Canvas
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Canvas сериализует шаги по Type во время выполнения — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Canvas диспатчит шаги через MakeGenericMethod — несовместимо с NativeAOT.")]
     public static CanvasChain Chain() => new();
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Canvas сериализует шаги по Type во время выполнения — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Canvas диспатчит шаги через MakeGenericMethod — несовместимо с NativeAOT.")]
     public static CanvasChain Chain<T>(T first) where T : class => new CanvasChain().Add(first);
     public static CanvasGroup Group() => new();
     public static CanvasChord Chord(CanvasGroup group, object callback) => new(group, callback, callback.GetType());
@@ -142,6 +154,10 @@ public static class Canvas
 /// <summary>
 /// Middleware который после успешной обработки проверяет заголовок `avtobus.canvas.chain` и отправляет следующий шаг.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Canvas восстанавливает типы шагов по имени (Type.GetType) и десериализует payload во время выполнения.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Canvas диспатчит шаги через MakeGenericMethod во время выполнения — несовместимо с NativeAOT.")]
 public sealed class CanvasMiddleware : AvtoBus.Pipeline.IBusMiddleware
 {
     private readonly AvtoBusClient _bus;
@@ -215,6 +231,10 @@ public sealed class CanvasMiddleware : AvtoBus.Pipeline.IBusMiddleware
 
 public static class CanvasExtensions
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Canvas восстанавливает типы шагов по имени во время выполнения — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Canvas диспатчит шаги через MakeGenericMethod — несовместимо с NativeAOT.")]
     public static AvtoBus.Configuration.BusConfigurator UseCanvas(this AvtoBus.Configuration.BusConfigurator bus, IChordStore? store = null)
     {
         store ??= new InMemoryChordStore();

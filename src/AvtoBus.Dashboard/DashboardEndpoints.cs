@@ -15,6 +15,10 @@ public static class DashboardEndpoints
     /// Маппит группу <c>GET/DELETE/POST</c> дашборда под базовым путём
     /// <see cref="DashboardOptions.RoutePrefix"/> с <c>RequireAuthorization(PolicyName)</c>.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Minimal-API лямбды дашборда оперируют только внутренними DTO; RDG приложения покрывает их при trimming.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Minimal-API лямбды дашборда оперируют только внутренними DTO; RDG приложения покрывает их при NativeAOT.")]
     public static IEndpointRouteBuilder MapAvtoBusDashboard(this IEndpointRouteBuilder endpoints)
     {
         var options = endpoints.ServiceProvider.GetRequiredService<DashboardOptions>();

@@ -80,6 +80,9 @@ public sealed class OutboxCleanup : BackgroundService
         => DeleteExpiredAsync(db, cutoff, int.MaxValue, ct);
 
     /// <summary>Таблица ещё не создана (гонка со SchemaMigrator): PG 42P01, SQLite «no such table».</summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "Провайдер-нейтральный сниффинг PostgresException.SqlState без зависимости на Npgsql; " +
+        "затрагиваются только типы исключений.")]
     internal static bool IsMissingTable(Exception ex)
     {
         for (var e = ex; e is not null; e = e.InnerException)

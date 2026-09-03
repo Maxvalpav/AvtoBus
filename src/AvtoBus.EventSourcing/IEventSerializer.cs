@@ -32,9 +32,21 @@ public sealed class JsonEventSerializer : IEventSerializer
     public Type? ResolveType(string eventType)
         => _typeMap.TryGetValue(eventType, out var clrType) ? clrType : null;
 
+    /// <summary>
+    /// Дефолтный сериализатор событий через reflection-STJ. Типы событий регистрирует
+    /// явно приложение; под строгим AOT подмените на source-generated IEventSerializer.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Типы событий регистрирует явно приложение; под строгим AOT — свой IEventSerializer.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Типы событий регистрирует явно приложение; под строгим AOT — свой IEventSerializer.")]
     public ReadOnlyMemory<byte> Serialize(object @event)
         => JsonSerializer.SerializeToUtf8Bytes(@event, @event.GetType(), _options);
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Типы событий регистрирует явно приложение; под строгим AOT — свой IEventSerializer.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Типы событий регистрирует явно приложение; под строгим AOT — свой IEventSerializer.")]
     public object Deserialize(ReadOnlyMemory<byte> data, string eventType)
     {
         if (!_typeMap.TryGetValue(eventType, out var clrType))
@@ -44,9 +56,17 @@ public sealed class JsonEventSerializer : IEventSerializer
             ?? throw new InvalidOperationException($"Null after deserializing {eventType}");
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Снапшоты персистят произвольное состояние: типы сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Снапшоты персистят произвольное состояние: типы сохраняет приложение.")]
     public ReadOnlyMemory<byte> SerializeSnapshot(object state)
         => JsonSerializer.SerializeToUtf8Bytes(state, state.GetType(), _options);
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Снапшоты персистят произвольное состояние: типы сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Снапшоты персистят произвольное состояние: типы сохраняет приложение.")]
     public T DeserializeSnapshot<T>(ReadOnlyMemory<byte> data) where T : class
         => JsonSerializer.Deserialize<T>(data.Span, _options)!;
 }

@@ -226,6 +226,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp =>
         {
             var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
+            return meter.CreateObservableGauge<double>(
+                "avtobus.outbox.oldest_pending_age",
+                () => CollectOutboxOldestAge(sp),
+                unit: "s",
+                description: "Возраст старейшего неотправленного outbox-сообщения (индикатор застревания)");
+        });
+
+        services.AddSingleton(sp =>
+        {
+            var meter = sp.GetRequiredService<System.Diagnostics.Metrics.Meter>();
             return meter.CreateObservableGauge<long>(
                 "avtobus.consumer.lag",
                 () => CollectConsumerLags(sp),
@@ -271,6 +281,18 @@ public static class ServiceCollectionExtensions
     {
         foreach (var outbox in provider.GetServices<IOutboxPendingProvider>())
             yield return new System.Diagnostics.Metrics.Measurement<long>(outbox.OutboxPending);
+    }
+
+    /// <summary>Собирает возраст старейшего ожидающего outbox-сообщения (секунды).</summary>
+    private static System.Collections.Generic.IEnumerable<System.Diagnostics.Metrics.Measurement<double>> CollectOutboxOldestAge(
+        IServiceProvider provider)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var outbox in provider.GetServices<IOutboxHealthProvider>())
+        {
+            if (outbox.OldestPendingAt is { } oldest)
+                yield return new System.Diagnostics.Metrics.Measurement<double>((now - oldest).TotalSeconds);
+        }
     }
 
     /// <summary>Собирает отставания всех консьюмеров с тегом имени destination.</summary>

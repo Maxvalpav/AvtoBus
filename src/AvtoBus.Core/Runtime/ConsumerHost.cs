@@ -72,13 +72,18 @@ public sealed class ConsumerHost(
             _runners.Add(runner);
         }
 
-        // Отдельный ранер слушает reply-очередь этого процесса.
-        var replySubscription = new ConsumerSubscription(
-            transports.Default,
-            new TransportSubscription(TransportDestination.Queue(replies.ReplyAddress), options.ServiceName),
-            MessageType: null);
+        // Reply-очередь этого процесса слушаем на КАЖДОМ транспорте (аудит C2):
+        // ответ может прийти любым транспортом (у отвечающей стороны своя
+        // маршрутизация типа ответа), а не только транспортом по умолчанию.
+        foreach (var transport in transports.All)
+        {
+            var replySubscription = new ConsumerSubscription(
+                transport,
+                new TransportSubscription(TransportDestination.Queue(replies.ReplyAddress), options.ServiceName),
+                MessageType: null);
 
-        _runners.Add(new ConsumerRunner(replySubscription, processor, options, time, logger));
+            _runners.Add(new ConsumerRunner(replySubscription, processor, options, time, logger));
+        }
 
         // Публикуем снапшот атомарно: читатели Runners/ConsumerLags/StopAsync видят
         // либо пустой, либо полный набор — без InvalidOperationException при перечислении List (аудит C1).
@@ -224,10 +229,11 @@ public sealed class ConsumerHost(
             await group.Key.ProvisionAsync(destinations, ct).ConfigureAwait(false);
         }
 
-        // Reply-очередь тоже нужно создать заранее.
-        await transports.Default
-            .ProvisionAsync([TransportDestination.Queue(replies.ReplyAddress)], ct)
-            .ConfigureAwait(false);
+        // Reply-очередь создаём на каждом транспорте — ответы слушаем везде (аудит C2).
+        foreach (var transport in transports.All)
+            await transport
+                .ProvisionAsync([TransportDestination.Queue(replies.ReplyAddress)], ct)
+                .ConfigureAwait(false);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

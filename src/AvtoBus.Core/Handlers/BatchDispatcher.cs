@@ -63,6 +63,7 @@ internal static class BatchHandlerBinder
 
     /// <summary>Компилирует батч-диспетчер. Reflection-путь (legacy): под AOT батчи не покрываются генератором.</summary>
     [RequiresUnreferencedCode("Компиляция батч-вызова через Expression — reflection-путь (legacy).")]
+    [RequiresDynamicCode("Компиляция батч-вызова через Expression.Compile — reflection-путь (legacy).")]
     public static IBatchDispatcher Bind(MethodInfo method)
     {
         var messageType = method.GetParameters()[0].ParameterType.GetGenericArguments()[0];

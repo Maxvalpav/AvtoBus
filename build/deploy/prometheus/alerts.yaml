@@ -21,4 +21,9 @@ groups:
         expr: avtobus_outbox_pending > 1000
         for: 10m
         labels: { severity: warning }
-        annotations: { summary: "Outbox pending >1k — relay не справляется" }
+        annotations: { summary: "Outbox pending >1k — relay не справляется", runbook: "RUNBOOK.md#outbox-застрял" }
+      - alert: AvtoBusOutboxOldestStuck
+        expr: avtobus_outbox_oldest_pending_age > 600
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Старейшее outbox-сообщение старше 10 мин — застревание, а не нагрузка", runbook: "RUNBOOK.md#outbox-застрял" }

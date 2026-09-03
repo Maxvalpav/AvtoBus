@@ -72,7 +72,9 @@ public sealed class OutboxPostgresTests
         return condition();
     }
 
-    private static ServiceProvider BuildRelayServices(string cs, RecordingTransport transport, OutboxOptions? options = null)
+    private static ServiceProvider BuildRelayServices(
+        string cs, RecordingTransport transport, OutboxOptions? options = null,
+        System.Collections.Concurrent.ConcurrentQueue<string>? logSink = null)
     {
         var services = new ServiceCollection();
         services.AddDbContext<TestOutboxContext>(o => o.UseNpgsql(cs));
@@ -81,9 +83,44 @@ public sealed class OutboxPostgresTests
         services.AddSingleton<IOutboxSignal, ChannelOutboxSignal>();
         services.AddSingleton(options ?? new OutboxOptions { PollInterval = TimeSpan.FromMilliseconds(100) });
         services.AddSingleton(new TransportRegistry([transport], transport.Name));
-        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
+        services.AddLogging(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Debug);
+            if (logSink is not null)
+                b.AddProvider(new QueueLoggerProvider(logSink));
+        });
         services.AddSingleton<OutboxRelay>();
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>Временный перехват логов relay для диагностики (без пакетов, только Abstractions).</summary>
+    private sealed class QueueLoggerProvider(System.Collections.Concurrent.ConcurrentQueue<string> sink) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string category) => new QueueLogger(sink, category);
+
+        public void Dispose() { }
+
+        private sealed class QueueLogger(
+            System.Collections.Concurrent.ConcurrentQueue<string> sink, string category) : ILogger
+        {
+            public IDisposable BeginScope<TState>(TState state) where TState : notnull
+                => NullScope.Instance;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+                => sink.Enqueue($"{logLevel} {category}: {formatter(state, exception)}" +
+                    (exception is null ? "" : $" <= {exception.GetType().Name}: {exception.Message}"));
+
+            private sealed class NullScope : IDisposable
+            {
+                public static readonly NullScope Instance = new();
+
+                public void Dispose() { }
+            }
+        }
     }
 
     /// <summary>Полная шина без хоста: IMessageSession + UseOutbox для проверки атомарности session-пути.</summary>
@@ -436,6 +473,152 @@ public sealed class OutboxPostgresTests
     }
 
     [Fact]
+    public async Task Pending_and_oldest_age_survive_failed_pumps_via_db_refresh()
+    {
+        // Аудит A3: дельта pending в памяти после failed-pump показывает 0,
+        // хотя строки ждут в БД. DB-refresh на простое возвращает правду.
+        var cs = await RequirePgAsync();
+        await using (var db = new TestOutboxContext(Options(cs)))
+            await db.Database.EnsureCreatedAsync();
+
+        var messages = Enumerable.Range(0, 5).Select(_ => NewEnvelope()).ToArray();
+        await EnqueueAsync(cs, new OutboxRoute("orders", null), messages);
+
+        var transport = new RecordingTransport(fail: true);
+        var options = new OutboxOptions
+        {
+            PollInterval = TimeSpan.FromMilliseconds(50),
+            BatchSize = 5,
+            HealthRefreshInterval = TimeSpan.FromMilliseconds(100),
+        };
+
+        await using var provider = BuildRelayServices(cs, transport, options);
+        var relay = provider.GetRequiredService<OutboxRelay>();
+
+        await relay.StartAsync(CancellationToken.None);
+        try
+        {
+            // Память после failed-pump показывает 0 (failed вычитается из дельты):
+            // требуем устойчивое значение из DB-refresh + реальную метку старейшего.
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+            var ok = false;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (relay.OutboxPending == messages.Length && relay.OldestPendingAt is { } oldest)
+                {
+                    await Task.Delay(400);
+                    if (relay.OutboxPending == messages.Length && relay.OldestPendingAt is { } oldest2
+                        && oldest2 <= DateTime.UtcNow)
+                    {
+                        ok = true;
+                        break;
+                    }
+                }
+                await Task.Delay(100);
+            }
+            Assert.True(ok, "DB-backed pending/oldest не показали ожидающие сообщения.");
+            Assert.NotNull(relay.OldestPendingAt);
+        }
+        finally
+        {
+            await relay.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Transport_flap_recovers_and_delivers_everything_after_backoff()
+    {
+        // Chaos G3: брокер лёг и встал — backoff откладывает, после восстановления всё доезжает без потерь.
+        var cs = await RequirePgAsync();
+        await using (var db = new TestOutboxContext(Options(cs)))
+            await db.Database.EnsureCreatedAsync();
+
+        var messages = Enumerable.Range(0, 10).Select(_ => NewEnvelope()).ToArray();
+        await EnqueueAsync(cs, new OutboxRoute("orders", null), messages);
+
+        var transport = new RecordingTransport(fail: true);
+        var options = new OutboxOptions { PollInterval = TimeSpan.FromMilliseconds(50), BatchSize = 10 };
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        await using var provider = BuildRelayServices(cs, transport, options, logs);
+        var relay = provider.GetRequiredService<OutboxRelay>();
+
+        await relay.StartAsync(CancellationToken.None);
+        try
+        {
+            // Дожидаемся, что relay упёрся в падающий транспорт (попытки пошли).
+            Assert.True(
+                await WaitUntilAsync(() => transport.FailedAttempts > 0, TimeSpan.FromSeconds(15)),
+                "Relay не попытался отправить через падающий транспорт.");
+
+            // Брокер «встал».
+            transport.Fail = false;
+
+            var delivered = await WaitUntilAsync(() => transport.Count >= messages.Length, TimeSpan.FromSeconds(30));
+            if (!delivered)
+            {
+                var recent = string.Join("\n", logs.TakeLast(30));
+                Assert.Fail($"После восстановления транспорта сообщения не доставлены. Логи relay:\n{recent}");
+            }
+        }
+        finally
+        {
+            await relay.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(messages.Length, transport.MessageIds.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Crashed_relay_hands_over_to_new_instance_without_loss()
+    {
+        // Chaos G3: relay умер с claimed-строками — новый инстанс забирает их
+        // через stale-claim и перехват лиз, потерь нет.
+        var cs = await RequirePgAsync();
+        await using (var db = new TestOutboxContext(Options(cs)))
+            await db.Database.EnsureCreatedAsync();
+
+        var messages = Enumerable.Range(0, 10).Select(_ => NewEnvelope() with { PartitionKey = "handover" }).ToArray();
+        await EnqueueAsync(cs, new OutboxRoute("orders", null), messages);
+
+        var dead = new RecordingTransport(fail: true);
+        var deadOptions = new OutboxOptions
+        {
+            PollInterval = TimeSpan.FromMilliseconds(50),
+            BatchSize = 10,
+            StaleClaim = TimeSpan.FromMilliseconds(300),
+            PartitionLeaseTtl = TimeSpan.FromMilliseconds(300),
+        };
+        await using var deadProvider = BuildRelayServices(cs, dead, deadOptions);
+        var relayA = deadProvider.GetRequiredService<OutboxRelay>();
+
+        await relayA.StartAsync(CancellationToken.None);
+        Assert.True(
+            await WaitUntilAsync(() => dead.FailedAttempts > 0, TimeSpan.FromSeconds(15)),
+            "Первый relay не забрал строки.");
+        // «Убиваем» первый relay: StopAsync отменяет pump, claimed-строки и лиза остаются висеть.
+        await relayA.StopAsync(CancellationToken.None);
+        await deadProvider.DisposeAsync();
+
+        var live = new RecordingTransport();
+        await using var liveProvider = BuildRelayServices(cs, live, deadOptions);
+        var relayB = liveProvider.GetRequiredService<OutboxRelay>();
+
+        await relayB.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.True(
+                await WaitUntilAsync(() => live.Count >= messages.Length, TimeSpan.FromSeconds(30)),
+                "Второй relay не подобрал строки упавшего.");
+        }
+        finally
+        {
+            await relayB.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(messages.Length, live.MessageIds.Distinct().Count());
+    }
+
+    [Fact]
     public async Task Inbox_dedup_suppresses_duplicate_delivery_on_postgres()
     {
         var cs = await RequirePgAsync();
@@ -709,8 +892,17 @@ internal sealed class RecordingTransport(string name = "recording", bool fail = 
 {
     private readonly List<(Guid MessageId, string Destination)> _sent = [];
     private readonly object _sync = new();
+    private int _failedAttempts;
 
     public string Name { get; } = name;
+
+    /// <summary>Переключатель отказа: true — SendAsync бросает (эмуляция лежащего брокера).</summary>
+    public bool Fail { get; set; } = fail;
+
+    public int FailedAttempts
+    {
+        get { lock (_sync) return _failedAttempts; }
+    }
 
     public int Count
     {
@@ -734,6 +926,12 @@ internal sealed class RecordingTransport(string name = "recording", bool fail = 
 
     public ValueTask SendAsync(Envelope envelope, TransportDestination destination, CancellationToken ct = default)
     {
+        bool fail;
+        lock (_sync)
+        {
+            fail = Fail;
+            if (fail) _failedAttempts++;
+        }
         if (fail) throw new InvalidOperationException("boom");
         lock (_sync) _sent.Add((envelope.MessageId, destination.Name));
         return ValueTask.CompletedTask;

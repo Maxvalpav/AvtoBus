@@ -93,21 +93,20 @@ public class InboxDedupMiddleware : IBusMiddleware
         for (var e = ex.InnerException; e is not null; e = e.InnerException)
         {
             // PostgreSQL: SqlState 23505 — код состояния не зависит от lc_messages (аудит A5).
-            var sqlState = e.GetType().GetProperty("SqlState")?.GetValue(e) as string;
-            if (sqlState == "23505") return true;
+            if (GetExceptionProperty(e, "SqlState") as string == "23505") return true;
 
             // SQL Server: error numbers 2627 (unique constraint) / 2601 (unique index).
-            if (e.GetType().GetProperty("Number")?.GetValue(e) is int number
+            if (GetExceptionProperty(e, "Number") is int number
                 && (number is 2627 or 2601)) return true;
 
             // SQLite: SqliteErrorCode / Result 19 (SQLITE_CONSTRAINT).
-            if (e.GetType().GetProperty("SqliteErrorCode")?.GetValue(e) is int sqliteCode && sqliteCode == 19)
+            if (GetExceptionProperty(e, "SqliteErrorCode") is int sqliteCode && sqliteCode == 19)
                 return true;
-            if (e.GetType().GetProperty("SqliteExtendedErrorCode")?.GetValue(e) is int extCode && extCode / 256 == 19)
+            if (GetExceptionProperty(e, "SqliteExtendedErrorCode") is int extCode && extCode / 256 == 19)
                 return true;
 
             // MySQL: error numbers 1062 (duplicate entry).
-            if (e.GetType().GetProperty("Number")?.GetValue(e) is int mysqlNumber && mysqlNumber == 1062
+            if (GetExceptionProperty(e, "Number") is int mysqlNumber && mysqlNumber == 1062
                 && e.GetType().FullName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true) return true;
         }
 
@@ -119,6 +118,16 @@ public class InboxDedupMiddleware : IBusMiddleware
     }
 
     /// <summary>
+    /// Чтение диагностических свойств исключений провайдеров БД (SqlState, ConstraintName,
+    /// Number) без typeref-зависимостей на Npgsql/SqlClient/Sqlite (аудит D5).
+    /// Затрагивает только типы исключений, не типы приложения.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "Провайдер-нейтральный сниффинг свойств исключений БД; типы приложения не затрагиваются.")]
+    private static object? GetExceptionProperty(Exception e, string name)
+        => e.GetType().GetProperty(name)?.GetValue(e);
+
+    /// <summary>
     /// Конфликт именно inbox-таблицы (а не бизнес-уникальности хендлера):
     /// имя ограничения PK_avtobus_inbox / таблица avtobus_inbox в сообщении или
     /// ConstraintName провайдера (Npgsql: PostgresException.ConstraintName).
@@ -127,7 +136,7 @@ public class InboxDedupMiddleware : IBusMiddleware
     {
         for (var e = ex.InnerException; e is not null; e = e.InnerException)
         {
-            var constraint = e.GetType().GetProperty("ConstraintName")?.GetValue(e) as string;
+            var constraint = GetExceptionProperty(e, "ConstraintName") as string;
             if (constraint is not null)
                 return constraint.Contains("avtobus_inbox", StringComparison.OrdinalIgnoreCase);
             var msg = e.Message;

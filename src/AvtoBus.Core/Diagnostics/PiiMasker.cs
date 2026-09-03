@@ -68,6 +68,9 @@ public static class PiiMasker
     [RequiresUnreferencedCode(
         "Маскирование контрактов использует reflection-STJ и сканирование атрибутов. " +
         "Диагностический путь (legacy): под AOT PiiMaskingEnabled должен быть выключен.")]
+    [RequiresDynamicCode(
+        "Маскирование контрактов сериализует произвольные CLR-типы через reflection-STJ. " +
+        "Диагностический путь (legacy): под AOT PiiMaskingEnabled должен быть выключен.")]
     public static string ToMaskedText(object? message)
     {
         if (message is null)
@@ -85,6 +88,8 @@ public static class PiiMasker
         return JsonSerializer.Serialize(masked, new JsonSerializerOptions { WriteIndented = false });
     }
 
+    [RequiresUnreferencedCode(
+        "Рекурсия по CLR-типам через карту BuildFieldMap (reflection) — только из ToMaskedText.")]
     private static object? MaskElement(JsonElement element, Type? dotnetType)
     {
         var fields = dotnetType is null ? null : MaskedProperties.GetOrAdd(dotnetType, BuildFieldMap);

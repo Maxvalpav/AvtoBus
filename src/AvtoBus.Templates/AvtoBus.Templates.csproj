@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <PackageType>Template</PackageType>
+    <IsAotCompatible>false</IsAotCompatible>
     <PackageId>AvtoBus.Templates</PackageId>
     <Title>AvtoBus templates</Title>
     <Description>Шаблоны проектов AvtoBus: avtobus-worker, avtobus-webapi.</Description>

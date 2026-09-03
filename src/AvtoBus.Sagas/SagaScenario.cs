@@ -7,6 +7,10 @@ namespace AvtoBus.Sagas;
 /// Декларативный тестовый сценарий саги (док 17, §7): Given —&gt; When —&gt; ThenSent/ThenState.
 /// Поднимает шину in-memory, прогоняет сообщения и проверяет каскады и итоговое состояние.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Сценарий регистрирует сагу через рефлексию и диспатчит dynamic — тестовый DSL, несовместим с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Сценарий диспатчит сообщения через dynamic — тестовый DSL, несовместим с NativeAOT.")]
 public sealed class SagaScenario<TSaga, TState>
     where TSaga : Saga<TState>, new()
     where TState : SagaState, new()

@@ -17,6 +17,11 @@ public sealed class OutboxOptions
     public TimeSpan PartitionLeaseTtl { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
+    /// Как часто на простое сверять pending/oldest с БД (аудит A3). Лёгкий COUNT-запрос.
+    /// </summary>
+    public TimeSpan HealthRefreshInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// После стольких неудачных попыток неотправленное сообщение считается poison
     /// и удаляется чисткой (иначе таблица растёт монотонно на вечно падающих).
     /// </summary>
@@ -38,6 +43,8 @@ public sealed class OutboxOptions
             throw new ArgumentOutOfRangeException(nameof(StaleClaim), "Outbox StaleClaim должен быть > 0.");
         if (PartitionLeaseTtl <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(PartitionLeaseTtl), "Outbox PartitionLeaseTtl должен быть > 0.");
+        if (HealthRefreshInterval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(HealthRefreshInterval), "Outbox HealthRefreshInterval должен быть > 0.");
         if (CleanupAfter <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(CleanupAfter), "Outbox CleanupAfter должен быть > 0.");
     }

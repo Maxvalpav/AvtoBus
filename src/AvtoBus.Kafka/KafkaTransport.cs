@@ -276,7 +276,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
     /// <summary>Имя DLQ-топика для заданного топика (соглашение поверх core-контракта).</summary>
     public static string DlqTopicName(string topic) => $"{topic}.dlq";
 
-    private void ApplyAdditional(dynamic config)
+    private void ApplyAdditional(Config config)
     {
         foreach (var (key, value) in _options.AdditionalProperties)
             config.Set(key, value);

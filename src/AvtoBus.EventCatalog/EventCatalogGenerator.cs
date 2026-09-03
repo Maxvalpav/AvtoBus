@@ -55,6 +55,7 @@ public sealed class EventCatalogGenerator
     }
 
     /// <summary>Все записи каталога, отсортированные по имени сообщения.</summary>
+    /// <remarks>Рефлексия по контрактам (см. <see cref="GenerateJson"/>): под строгим AOT избегайте.</remarks>
     public IReadOnlyList<CatalogEntry> Entries
         => _dispatchers.HandledTypes
             .Select(BuildEntry)
@@ -62,6 +63,10 @@ public sealed class EventCatalogGenerator
             .ToArray();
 
     /// <summary>Каталог в виде JSON: стабильный, для CI-диффа по PR (идея 138).</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Каталог сканирует свойства контрактов через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Каталог сериализует схемы через reflection-STJ — несовместимо с NativeAOT.")]
     public string GenerateJson()
     {
         var doc = new
@@ -86,6 +91,10 @@ public sealed class EventCatalogGenerator
     }
 
     /// <summary>Самодостаточный HTML-сайт каталога (single-file).</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Каталог сканирует свойства контрактов через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Каталог сериализует схемы через reflection-STJ — несовместимо с NativeAOT.")]
     public string GenerateHtml()
     {
         var entries = Entries;
@@ -154,6 +163,10 @@ public sealed class EventCatalogGenerator
         """;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Запись каталога строится из явно зарегистрированных контрактов; GenerateJson/GenerateHtml аннотированы RUC.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Запись каталога строится из явно зарегистрированных контрактов; GenerateJson/GenerateHtml аннотированы RDC.")]
     private CatalogEntry BuildEntry(Type type)
     {
         var isCommand = typeof(ICommand).IsAssignableFrom(type);
@@ -174,6 +187,10 @@ public sealed class EventCatalogGenerator
             owners);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Схема строится сканированием свойств контракта — только из Entries/GenerateJson.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Схема сериализуется через reflection-STJ — только из Entries/GenerateJson.")]
     private static string BuildSchemaJson(Type type)
     {
         var props = type.GetProperties()

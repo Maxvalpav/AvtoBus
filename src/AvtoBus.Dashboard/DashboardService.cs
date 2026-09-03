@@ -88,6 +88,10 @@ public sealed class DashboardService(
         return messages.Select(Sanitize).ToArray();
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Санитизация DLQ-превью делегирует аннотированному MaskPiiFields.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Санитизация DLQ-превью делегирует аннотированному MaskPiiFields.")]
     private DlqMessage Sanitize(DlqMessage message)
     {
         var envelope = message.Envelope;
@@ -122,6 +126,10 @@ public sealed class DashboardService(
     /// Полная защита — [PersonalData] + PiiMaskingEnabled на consume-пути; здесь только
     /// вторая линия для дашборда, не знающего CLR-типы контрактов.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Маскирование работает поверх reflection-STJ и JsonElement — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Маскирование сериализует через reflection-STJ — несовместимо с NativeAOT.")]
     public static ReadOnlyMemory<byte> MaskPiiFields(ReadOnlyMemory<byte> body)
     {
         string text;

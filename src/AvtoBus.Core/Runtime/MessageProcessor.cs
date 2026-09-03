@@ -173,6 +173,9 @@ public sealed class MessageProcessor(
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
         "PiiMasker — диагностический reflection-режим (legacy): под AOT выключен (PiiMaskingEnabled=false), " +
         "и эта ветка недостижима.")]
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "PiiMasker — диагностический reflection-режим (legacy): под AOT выключен (PiiMaskingEnabled=false), " +
+        "и эта ветка недостижима.")]
     private async ValueTask<bool> TrySecondLineAsync(
         Envelope envelope,
         Type messageType,

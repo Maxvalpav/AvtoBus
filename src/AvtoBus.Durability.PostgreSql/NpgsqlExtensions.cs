@@ -10,7 +10,12 @@ namespace AvtoBus.Durability.PostgreSql;
 /// </summary>
 public static class NpgsqlExtensions
 {
-    public static IServiceCollection AddAvtoBusNpgsql<TDbContext>(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddAvtoBusNpgsql<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicConstructors |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] TDbContext>(
+        this IServiceCollection services, string connectionString)
         where TDbContext : DbContext
     {
         services.AddDbContext<TDbContext>(o => o.UseNpgsql(connectionString, npg => npg.EnableRetryOnFailure()));

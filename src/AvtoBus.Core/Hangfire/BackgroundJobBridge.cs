@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using AvtoBus.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +10,10 @@ namespace AvtoBus.Hangfire;
 /// Захватывает expression, сериализует вызов как сообщение `HangfireJobEnvelope`, шлет через IBus.
 /// Продолжения: `ContinueWith`, батчи: `BatchJob.StartNew`.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "Expression-деревья компилируются и вызываются во время выполнения (DynamicInvoke, Type.GetType) — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "Expression-деревья компилируются во время выполнения — несовместимо с NativeAOT.")]
 public static class BackgroundJob
 {
     private static IBus? _bus;
@@ -82,6 +87,10 @@ public sealed class HangfireJobEnvelope
 public sealed class BatchJob
 {
     private readonly List<string> _ids = [];
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Делегирует BackgroundJob.Enqueue (expression-compile) — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Делегирует BackgroundJob.Enqueue (expression-compile) — несовместимо с NativeAOT.")]
     public BatchJob Enqueue(Expression<Action> call) { _ids.Add(BackgroundJob.Enqueue(call)); return this; }
     public IReadOnlyList<string> JobIds => _ids;
     public static BatchJob StartNew(Action<BatchJob> configure)
@@ -90,12 +99,20 @@ public sealed class BatchJob
         configure(b);
         return b;
     }
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Делегирует BackgroundJob.Enqueue (expression-compile) — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Делегирует BackgroundJob.Enqueue (expression-compile) — несовместимо с NativeAOT.")]
     public string AwaitBatch(string batchId) => BackgroundJob.Enqueue(() => Noop(batchId));
     private static void Noop(string _) { }
 }
 
 public static class HangfireExtensions
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Hangfire-мост вызывает методы по имени через рефлексию (Type.GetType/MethodInfo.Invoke) — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Hangfire-мост вызывает методы через MethodInfo.Invoke — несовместимо с NativeAOT.")]
     public static BusConfigurator UseHangfireBridge(this BusConfigurator bus)
     {
         bus.Services.AddSingleton<HangfireJobHandler>();
@@ -108,7 +125,18 @@ public sealed class HangfireJobHandler : IConsumer<HangfireJobEnvelope>
 {
     private readonly IServiceProvider _sp;
     public HangfireJobHandler(IServiceProvider sp) => _sp = sp;
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Вызов доступен только при включённом UseHangfireBridge (аннотирован RUC): без моста хендлер не регистрируется.")]
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Вызов доступен только при включённом UseHangfireBridge (аннотирован RDC): без моста хендлер не регистрируется.")]
     public async Task ConsumeAsync(ConsumeContext<HangfireJobEnvelope> ctx)
+        => await InvokeJobAsync(ctx).ConfigureAwait(false);
+
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Вызов метода фоновой задачи по имени через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Вызов метода фоновой задачи через MethodInfo.Invoke — несовместимо с NativeAOT.")]
+    private async Task InvokeJobAsync(ConsumeContext<HangfireJobEnvelope> ctx)
     {
         var env = ctx.Message;
         var type = Type.GetType(env.TypeName);

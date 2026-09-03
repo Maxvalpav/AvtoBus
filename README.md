@@ -70,6 +70,29 @@ public static class OrderHandlers
 }
 ```
 
+## 🗺 Что взять: три сценария
+
+| Сценарий | Пакеты | Строки кода |
+|---|---|---|
+| Модульный монолит без брокера | `AvtoBus` (Core + InMemory уже внутри) | `bus.UseInMemory()` + хендлеры |
+| Сервис с RabbitMQ и outbox | `AvtoBus.RabbitMq` + `AvtoBus.Outbox.EfCore` | `bus.UseRabbitMq(url)` + `bus.UseOutbox<AppDbContext>()` |
+| Поток событий на Kafka | `AvtoBus.Kafka` | `bus.UseKafka(bootstrap)` + `PartitionKey` на событиях |
+
+Полная таблица пакетов — ниже. Гарантии доставки — по транспортам:
+
+| Транспорт | Доставка | Порядок | Delayed | DLQ | Conformance в CI |
+|---|---|---|---|---|---|
+| InMemory | at-least-once в процессе | FIFO в очереди | ✅ | `.error`/`.poison`/`.expired` | ✅ (всегда) |
+| RabbitMQ | at-least-once, confirms | в очереди | ✅ | ✅ | ✅ (сервис в CI) |
+| SQL (PostgreSQL) | at-least-once, SKIP LOCKED | выборка по Id | ✅ | ✅ | ✅ (сервис в CI) |
+| Kafka | at-least-once (idempotent producer) | внутри партиции | — | ✅ | ✅ (сервис в CI) |
+| NATS JetStream | at-least-once | per subject | — | ✅ | ✅ (сервис в CI) |
+| Redis Streams | at-least-once, groups | per stream | — | ✅ | ✅ (сервис в CI) |
+| Azure Service Bus | at-least-once (PeekLock) | сессии | scheduled | ✅ | ⚠️ ручной (нужен Azure) |
+
+Outbox поверх любого транспорта: at-least-once + FIFO per `PartitionKey` (партиционные лизы),
+inbox-дедуп или идемпотентный хендлер обязательны. Подпись конвертов: v3 + anti-replay.
+
 ## 📦 Проекты
 
 | Пакет | Назначение | Доставка |

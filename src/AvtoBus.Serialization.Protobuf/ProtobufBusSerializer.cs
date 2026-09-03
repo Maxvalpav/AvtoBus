@@ -14,6 +14,8 @@ namespace AvtoBus.Serialization.Protobuf;
 /// <remarks>
 /// Десериализация идёт через статический <c>Parser</c> типа (генерируется protoc), с фолбэком
 /// на <see cref="IMessage.MergeFrom"/> для самописных реализаций <see cref="IMessage"/>.
+/// Trimming: контракты обязаны быть сохранены целиком (protoc-типы, на которые ссылается код
+/// приложения); для строгого AOT предпочитайте source-generated JSON.
 /// </remarks>
 public sealed class ProtobufBusSerializer : IMessageSerializer
 {
@@ -31,6 +33,12 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
         writer.Write(bytes);
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067", Justification =
+        "См. remarks класса: protobuf-контракты обязаны быть trim-сохранены целиком.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification =
+        "См. remarks класса: поиск Parser — по статически сгенерированному protoc-свойству.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "См. remarks класса: ParseFrom — сгенерированный protoc-метод сохранённого контракта.")]
     public object? Deserialize(ReadOnlyMemory<byte> body, Type type)
     {
         if (!typeof(IMessage).IsAssignableFrom(type))
@@ -52,6 +60,10 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, (object Parser, MethodInfo ParseMethod)> ParserCache = new();
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification =
+        "См. remarks класса: поиск Parser — по статически сгенерированному protoc-свойству сохранённого контракта.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "См. remarks класса: ParseFrom — сгенерированный protoc-метод сохранённого контракта.")]
     private static object? FindParser(Type type)
     {
         if (ParserCache.TryGetValue(type, out var cached))
@@ -64,6 +76,8 @@ public sealed class ProtobufBusSerializer : IMessageSerializer
         return parser;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "См. remarks класса: ParseFrom — сгенерированный protoc-метод сохранённого контракта.")]
     private static object? InvokeParse(object parser, ReadOnlyMemory<byte> body)
     {
         // Direct lookup: parser type is unique per message type, find cache entry by parser reference

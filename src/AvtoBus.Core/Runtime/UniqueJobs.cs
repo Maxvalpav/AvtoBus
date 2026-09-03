@@ -107,6 +107,10 @@ public static class UniqueKeyComputer
     // дорогая аллокация (кэши метаданных сериализатора) на send-пути.
     private static readonly JsonSerializerOptions StableOptions = new() { WriteIndented = false };
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Хэш тела через reflection-STJ произвольного типа — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Хэш тела через reflection-STJ произвольного типа — несовместимо с NativeAOT.")]
     public static string Compute<T>(T message, Type messageType, string destination, UniqueJobAttribute attr)
     {
         var prefix = attr.KeyPrefix ?? messageType.FullName ?? messageType.Name;
@@ -117,6 +121,10 @@ public static class UniqueKeyComputer
         return attr.ByQueue ? $"{prefix}::{destination}::{hash}" : $"{prefix}::{hash}";
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Хэш тела через reflection-STJ произвольного типа — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Хэш тела через reflection-STJ произвольного типа — несовместимо с NativeAOT.")]
     public static string Compute(object message, Type messageType, string destination, UniqueJobAttribute attr)
         => Compute(message, messageType, destination, attr);
 }
@@ -130,7 +138,10 @@ public static class UniqueJobExtensions
         return bus;
     }
 
-    public static BusConfigurator UseUniqueJobs<TStore>(this BusConfigurator bus)
+    public static BusConfigurator UseUniqueJobs<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>(
+        this BusConfigurator bus)
         where TStore : class, IUniqueStore
     {
         bus.Services.AddSingleton<IUniqueStore, TStore>();

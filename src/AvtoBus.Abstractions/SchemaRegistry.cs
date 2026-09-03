@@ -58,7 +58,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
 
 public static class SchemaRegistryExtensions
 {
-    public static void RegisterMessage<T>(this ISchemaRegistry registry)
+    public static void RegisterMessage<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(this ISchemaRegistry registry)
     {
         var type = typeof(T);
         var name = (string?)type.GetProperty("SchemaName", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null)

@@ -22,6 +22,9 @@ public sealed partial class BusConfigurator
     [RequiresUnreferencedCode(
         "Сканирование сборки на хендлеры несовместимо с trimming. Под AOT регистрируйте хендлеры через " +
         "AddConsumer<T>() с подключённым AvtoBus.Generators.")]
+    [RequiresDynamicCode(
+        "Регистрация компилирует вызовы хендлеров через Expression.Compile. Под AOT используйте " +
+        "AddConsumer<T>() с подключённым AvtoBus.Generators.")]
     public BusConfigurator AddConsumersFromAssembly(Assembly assembly)
     {
         foreach (var type in assembly.GetTypes())
@@ -38,10 +41,19 @@ public sealed partial class BusConfigurator
         return this;
     }
 
+    [RequiresUnreferencedCode(
+        "Сканирование сборки на хендлеры несовместимо с trimming. Под AOT регистрируйте хендлеры через " +
+        "AddConsumer<T>() с подключённым AvtoBus.Generators.")]
+    [RequiresDynamicCode(
+        "Регистрация компилирует вызовы хендлеров через Expression.Compile. Под AOT используйте " +
+        "AddConsumer<T>() с подключённым AvtoBus.Generators.")]
     public BusConfigurator AddConsumersFromAssemblyContaining<T>()
         => AddConsumersFromAssembly(typeof(T).Assembly);
 
     /// <summary>AOT-safe: регистрирует только сгенерированные диспетчеры (без рефлексии).</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification =
+        "AvtoBusRegistry наполняется исключительно сгенерированным кодом через typeof() " +
+        "(ModuleInitializer): типы известны статически, trim-safe по построению.")]
     public BusConfigurator AddConsumersFromGenerated()
     {
         foreach (var type in AvtoBus.Dispatching.AvtoBusRegistry.GeneratedHandlerTypes)
@@ -54,6 +66,9 @@ public sealed partial class BusConfigurator
         "Под AOT тип обязан быть покрыт генератором: тогда работает только сгенерированный диспетчер " +
         "(AvtoBusRegistry.HasGeneratedFor), а reflection-ветка недостижима. Reflection-fallback — legacy-режим " +
         "без генератора; trimming без генератора не поддерживается (док 16 §8).")]
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Под AOT тип покрыт генератором: AddConsumerType возвращается до Expression.Compile " +
+        "(HasGeneratedFor), динамический код недостижим. Без генератора trimming не поддерживается.")]
     public BusConfigurator AddConsumer<THandler>() where THandler : class
         => AddConsumer(typeof(THandler));
 
@@ -66,6 +81,9 @@ public sealed partial class BusConfigurator
     [RequiresUnreferencedCode(
         "Регистрация хендлера по Type использует рефлексию. Для AOT используйте AddConsumer<T>() с " +
         "подключённым AvtoBus.Generators (тогда тип покрыт сгенерированным диспетчером).")]
+    [RequiresDynamicCode(
+        "Регистрация компилирует вызов хендлера через Expression.Compile. Для AOT используйте " +
+        "AddConsumer<T>() с подключённым AvtoBus.Generators.")]
     public BusConfigurator AddConsumer(Type handlerType)
     {
         AddConsumerType(handlerType);
@@ -75,6 +93,8 @@ public sealed partial class BusConfigurator
     [RequiresUnreferencedCode(
         "Рефлексия при регистрации хендлера: разбор интерфейсов/методов. Под AOT тип покрывается генератором, " +
         "и эта ветка недостижима (AvtoBusRegistry.HasGeneratedFor).")]
+    [RequiresDynamicCode(
+        "Компиляция диспетчеров через Expression.Compile. Под AOT типы покрываются генератором.")]
     private void AddConsumerType(Type type)
     {
         // Source Generator: сгенерированные диспетчеры заменяют reflection для этого типа (док 16).

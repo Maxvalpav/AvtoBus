@@ -96,6 +96,33 @@
       "targets": [
         { "expr": "sum(rate(avtobus_publish_bytes[1m]))", "legendFormat": "bytes/s" }
       ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Outbox pending",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "sum(avtobus_outbox_pending)", "legendFormat": "pending" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Outbox oldest pending age (s)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+      "targets": [
+        { "expr": "max(avtobus_outbox_oldest_pending_age)", "legendFormat": "oldest age" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Consumer lag",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "targets": [
+        { "expr": "sum(avtobus_consumer_lag)", "legendFormat": "lag" }
+      ]
     }
   ]
 }

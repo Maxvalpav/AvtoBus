@@ -12,6 +12,10 @@ public sealed class FlinkSqlOptions
     public TimeSpan DefaultWindow { get; set; } = TimeSpan.FromMinutes(1);
 }
 
+[System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+    "SQL-проекции гоняют T через JSON и читают свойства по имени — несовместимо с trimming/AOT.")]
+[System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+    "SQL-проекции гоняют T через reflection-STJ — несовместимо с NativeAOT.")]
 public sealed class SqlStreamTopology<T>(string sql, FlinkSqlOptions? opts = null)
 {
     private readonly string _sql = sql;
@@ -127,5 +131,9 @@ public static class FlinkSqlParser
 
 public static class FlinkSqlExtensions
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "SQL-проекции гоняют T через JSON и читают свойства по имени — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "SQL-проекции гоняют T через reflection-STJ — несовместимо с NativeAOT.")]
     public static SqlStreamTopology<T> Sql<T>(this IStateStore<string, T> store, string sql) where T : notnull => new(sql);
 }

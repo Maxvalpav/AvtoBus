@@ -60,6 +60,9 @@ public sealed class JsonMessageSerializer : IMessageSerializer
 
     public string ContentType => "application/json";
 
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Документированный reflection-fallback (см. remarks класса): AOT-приложения регистрируют " +
+        "JsonSerializerContext и идут верхней веткой через JsonTypeInfo без динамического кода.")]
     public void Serialize(IBufferWriter<byte> writer, object message, Type type)
     {
         using var json = new Utf8JsonWriter(writer);
@@ -74,6 +77,9 @@ public sealed class JsonMessageSerializer : IMessageSerializer
         JsonSerializer.Serialize(json, message, type, _options);
     }
 
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Документированный reflection-fallback (см. remarks класса): AOT-приложения регистрируют " +
+        "JsonSerializerContext и идут верхней веткой через JsonTypeInfo без динамического кода.")]
     public object? Deserialize(ReadOnlyMemory<byte> body, Type type)
     {
         if (_context is { } context && context.GetTypeInfo(type) is { } info)

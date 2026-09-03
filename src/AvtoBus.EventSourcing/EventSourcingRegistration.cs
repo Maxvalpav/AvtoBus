@@ -14,6 +14,8 @@ namespace AvtoBus;
 /// </summary>
 public static class EventSourcingRegistration
 {
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072", Justification =
+        "Типы проекций регистрирует явно само приложение (options.Projections); DI требует публичный конструктор — задокументировано.")]
     public static BusConfigurator UseEventSourcing<TDb>(
         this BusConfigurator bus,
         Action<EventSourcingOptions>? configure = null,
@@ -117,6 +119,8 @@ public sealed class EventSourcingOptions
         return this;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Сканирование сборки на события несовместимо с trimming. Регистрируйте типы явно через EventTypes.")]
     public EventSourcingOptions AddEventsFromAssembly(Assembly assembly)
     {
         foreach (var t in assembly.GetTypes())

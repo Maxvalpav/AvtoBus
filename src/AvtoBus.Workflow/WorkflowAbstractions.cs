@@ -55,6 +55,10 @@ public sealed class WorkflowInstanceRunner
         _uow = uow;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Durable-история персистит вход workflow: типы workflow сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Durable-история персистит вход workflow: типы workflow сохраняет приложение.")]
     public async Task<string> StartAsync<TInput>(string workflowType, TInput input, CancellationToken ct)
     {
         var id = $"{workflowType}:{Guid.NewGuid():N}";
@@ -81,6 +85,10 @@ public sealed class WorkflowInstanceRunner
     public async Task SignalAsync(string workflowId, string signalName, object payload, CancellationToken ct)
         => await SendSignalStatic(_store, workflowId, signalName, payload, ct, _clock, _uow);
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+        "Durable-история персистит сигналы: типы workflow сохраняет приложение.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+        "Durable-история персистит сигналы: типы workflow сохраняет приложение.")]
     internal static async Task SendSignalStatic(IWorkflowStore store, string workflowId, string signalName, object payload, CancellationToken ct, TimeProvider clock, IAvtoUnitOfWork? uow = null)
     {
         var history = await store.ReadHistoryAsync(workflowId, 0, ct);
@@ -114,6 +122,10 @@ public sealed class WorkflowInstanceRunner
         private long _seq = initialSeq;
         public DateTimeOffset Now => clock.GetUtcNow();
         public Guid NewGuid() => Guid.NewGuid();
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+            "Durable-история персистит произвольные payload: типы workflow сохраняет приложение.")]
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+            "Durable-история персистит произвольные payload: типы workflow сохраняет приложение.")]
         public async Task ContinueAsNewAsync(object input, CancellationToken ct = default)
         {
             await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
@@ -133,6 +145,10 @@ public sealed class WorkflowInstanceRunner
             return CreateTimer(delay, ct);
         }
 
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+            "Durable-история персистит произвольные payload: типы workflow сохраняет приложение.")]
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+            "Durable-история персистит произвольные payload: типы workflow сохраняет приложение.")]
         public async Task<T> WaitForEventAsync<T>(string eventName, TimeSpan? timeout = null, CancellationToken ct = default)
         {
             var seq = Interlocked.Increment(ref _seq);
@@ -191,6 +207,10 @@ public sealed class WorkflowInstanceRunner
             }
             await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "TimerFired", Payload = BitConverter.GetBytes(delay.Ticks), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
         }
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =
+            "Durable-история персистит результаты активити: типы workflow сохраняет приложение.")]
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Aot", "IL3050", Justification =
+            "Durable-история персистит результаты активити: типы workflow сохраняет приложение.")]
         public async Task<T> ExecuteActivityAsync<T>(Func<Task<T>> activity, ActivityOptions? options = null)
         {
             options ??= new ActivityOptions();

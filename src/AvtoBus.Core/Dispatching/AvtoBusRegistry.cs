@@ -13,8 +13,14 @@ public static class AvtoBusRegistry
     private static readonly object Sync = new();
     private static readonly List<(Type HandlerType, IMessageDispatcher Dispatcher)> Registered = [];
 
-    /// <summary>Регистрирует сгенерированный диспетчер. Вызывается только из сгенерированного кода.</summary>
-    public static void Register(Type handlerType, IMessageDispatcher dispatcher)
+    /// <summary>
+    /// Регистрирует сгенерированный диспетчер. Вызывается только из сгенерированного кода
+    /// с <c>typeof()</c> — trim-safe по построению, аннотация фиксирует это для анализатора.
+    /// </summary>
+    public static void Register(
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors)] Type handlerType,
+        IMessageDispatcher dispatcher)
     {
         lock (Sync)
             Registered.Add((handlerType, dispatcher));

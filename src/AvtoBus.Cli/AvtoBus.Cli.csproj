@@ -3,6 +3,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <ToolCommandName>avtobus</ToolCommandName>
+    <!-- CLI-тулза грузит сборки динамически: trim/AOT-анализ неприменим. -->
+    <IsAotCompatible>false</IsAotCompatible>
     <PackAsTool>true</PackAsTool>
     <PackageId>AvtoBus.Cli</PackageId>
     <Description>AvtoBus CLI: doctor, contracts, es explain, config, completion</Description>

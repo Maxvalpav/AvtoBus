@@ -11,6 +11,10 @@ public static class FieldEncryptor
 {
     private const string Prefix = "enc:";
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Сканирование [Encrypted]-полей через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Доступ к [Encrypted]-полям через PropertyInfo.GetValue/SetValue — несовместимо с NativeAOT.")]
     public static void EncryptFields(object message, ReadOnlySpan<byte> key)
     {
         foreach (var prop in GetEncryptedProperties(message.GetType()))
@@ -22,6 +26,10 @@ public static class FieldEncryptor
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Сканирование [Encrypted]-полей через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Доступ к [Encrypted]-полям через PropertyInfo.GetValue/SetValue — несовместимо с NativeAOT.")]
     public static void DecryptFields(object message, ReadOnlySpan<byte> key)
     {
         foreach (var prop in GetEncryptedProperties(message.GetType()))
@@ -70,6 +78,8 @@ public static class FieldEncryptor
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo[]> Cache = new();
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2070", Justification =
+        "Вызывается только из EncryptFields/DecryptFields (аннотированы RUC): контракты сохраняет приложение.")]
     private static IEnumerable<PropertyInfo> GetEncryptedProperties(Type type)
         => Cache.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                .Where(p => p.CanRead && p.CanWrite && p.GetCustomAttribute<EncryptedAttribute>(inherit: true) is not null && p.PropertyType == typeof(string))

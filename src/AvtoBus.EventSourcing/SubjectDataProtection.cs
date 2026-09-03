@@ -107,6 +107,10 @@ public sealed class SubjectDataProtection
     }
 
     /// <summary>Шифрует поля события по конфигурации. Возвращает JSON-байты.</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Шифрование полей работает поверх reflection-STJ произвольных событий — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Шифрование полей работает поверх reflection-STJ произвольных событий — несовместимо с NativeAOT.")]
     public ReadOnlyMemory<byte> Protect(object payload, string eventType)
     {
         if (!_configs.TryGetValue(eventType, out var config))
@@ -138,6 +142,10 @@ public sealed class SubjectDataProtection
     /// Расшифровывает поля события. Если ключ субъекта удалён — зашифрованные поля возвращаются
     /// как <c>null</c> (данные «забыты», событие остаётся в сторе).
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Расшифровка работает поверх reflection-STJ произвольных событий — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Расшифровка работает поверх reflection-STJ произвольных событий — несовместимо с NativeAOT.")]
     public object Unprotect(ReadOnlyMemory<byte> data, string eventType, Type clrType)
     {
         if (!_configs.TryGetValue(eventType, out var config))
@@ -171,6 +179,8 @@ public sealed class SubjectDataProtection
         return subjectId is not null;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Только из Protect (аннотирован).")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Только из Protect (аннотирован).")]
     private static JsonObject EncryptField(JsonNode fieldNode, string subjectId, byte[] key)
     {
         var plaintext = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(fieldNode);

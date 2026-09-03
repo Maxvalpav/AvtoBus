@@ -16,6 +16,12 @@ avtobus dlq list --transport rabbitmq
 # реплей — через шину: bus.RepublishAsync(envelope)
 ```
 
+## Outbox застрял
+- `avtobus.outbox.pending` растёт + `avtobus.outbox.oldest_pending_age` > 600с → relay не вывозит
+или ключ залип: проверить логи relay (`Outbox pump failed`), глубину брокера, лизы партиций
+(`avtobus_outbox_leases`: `Owner`/`ExpiresAt`), затем DLQ.
+- pending растёт, oldest маленький → просто нагрузка: добавить relay/партиции.
+
 ## Канарейка / пробы
 - `/healthz` liveness, `/readyz` readiness, `/startupz` startup (8080).
 - OTel: `avtobus.queue.depth`, `consumer.lag`, `outbox.pending`, `dlq.size`, `consume.duration`.

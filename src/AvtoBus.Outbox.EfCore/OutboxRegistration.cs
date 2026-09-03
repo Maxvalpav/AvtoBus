@@ -37,6 +37,8 @@ public static class OutboxRegistration
         bus.Services.AddHostedService<OutboxRelay>();
         bus.Services.AddSingleton<AvtoBus.Observability.IOutboxPendingProvider>(sp =>
             sp.GetRequiredService<OutboxRelay>());
+        bus.Services.AddSingleton<AvtoBus.Observability.IOutboxHealthProvider>(sp =>
+            sp.GetRequiredService<OutboxRelay>());
         bus.Services.AddHostedService<OutboxCleanup>();
         // B12: схема outbox/inbox + таблица версий
         bus.Services.AddSingleton<AvtoBus.Migrations.ISchemaMigration, AvtoBus.Outbox.EfCore.OutboxSchemaMigration>();

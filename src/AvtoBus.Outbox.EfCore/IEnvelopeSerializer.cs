@@ -1,4 +1,7 @@
 using System.Buffers;
+using System.Collections.Frozen;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AvtoBus.Outbox.EfCore;
 
@@ -13,12 +16,15 @@ public interface IEnvelopeSerializer
 }
 
 /// <summary>System.Text.Json — не требует MemoryPack, тело конверта копируется как byte[].</summary>
-public sealed class JsonEnvelopeSerializer : IEnvelopeSerializer
+public sealed partial class JsonEnvelopeSerializer : IEnvelopeSerializer
 {
-    private static readonly System.Text.Json.JsonSerializerOptions Options = new(System.Text.Json.JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        TypeInfoResolver = OutboxEnvelopeJsonContext.Default,
     };
+
+    private static readonly OutboxEnvelopeJsonContext Ctx = new(Options);
 
     public byte[] Serialize(Envelope env)
     {
@@ -38,15 +44,15 @@ public sealed class JsonEnvelopeSerializer : IEnvelopeSerializer
             ReplyTo = env.ReplyTo,
             DeliveryAttempt = env.DeliveryAttempt,
             TraceParent = env.TraceParent,
-            Headers = env.Headers,
+            Headers = new Dictionary<string, string>(env.Headers, StringComparer.Ordinal),
         };
 
-        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(dto, Options);
+        return JsonSerializer.SerializeToUtf8Bytes(dto, Ctx.EnvelopeData);
     }
 
     public Envelope Deserialize(ReadOnlyMemory<byte> blob)
     {
-        var dto = System.Text.Json.JsonSerializer.Deserialize<EnvelopeData>(blob.Span, Options)
+        var dto = JsonSerializer.Deserialize(blob.Span, Ctx.EnvelopeData)
             ?? throw new InvalidOperationException("Конверт не десериализовался из outbox-бд.");
 
         return new Envelope
@@ -65,7 +71,7 @@ public sealed class JsonEnvelopeSerializer : IEnvelopeSerializer
             ReplyTo = dto.ReplyTo,
             DeliveryAttempt = dto.DeliveryAttempt,
             TraceParent = dto.TraceParent,
-            Headers = dto.Headers ?? System.Collections.Frozen.FrozenDictionary<string, string>.Empty,
+            Headers = dto.Headers?.ToFrozenDictionary(StringComparer.Ordinal) ?? FrozenDictionary<string, string>.Empty,
         };
     }
 
@@ -85,6 +91,12 @@ public sealed class JsonEnvelopeSerializer : IEnvelopeSerializer
         public string? ReplyTo { get; set; }
         public int DeliveryAttempt { get; set; } = 1;
         public string? TraceParent { get; set; }
-        public IReadOnlyDictionary<string, string>? Headers { get; set; }
+        public Dictionary<string, string>? Headers { get; set; }
+    }
+
+    /// <summary>Source-generated контекст DTO конверта (аудит D5): trim/AOT-safe, wire-формат прежний.</summary>
+    [JsonSerializable(typeof(EnvelopeData))]
+    private sealed partial class OutboxEnvelopeJsonContext : JsonSerializerContext
+    {
     }
 }

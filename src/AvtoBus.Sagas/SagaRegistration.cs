@@ -11,7 +11,16 @@ public static class SagaRegistration
     /// Регистрирует сагу: метаданные (корреляции + инварианты), хранилище по умолчанию
     /// и по одному диспетчеру на каждое коррелируемое сообщение.
     /// </summary>
-    public static BusConfigurator AddSaga<TSaga, TState>(this BusConfigurator bus)
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Метаданные саги строятся сканированием методов/корреляций через рефлексию — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Диспетчеры саги компилируются через Expression — несовместимо с NativeAOT.")]
+    public static BusConfigurator AddSaga<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] TSaga,
+        TState>(this BusConfigurator bus)
         where TSaga : Saga<TState>, new()
         where TState : SagaState, new()
     {

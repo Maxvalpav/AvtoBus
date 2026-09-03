@@ -26,7 +26,7 @@ jobs:
         # CI=true на restore, чтобы Microsoft.SourceLink.GitHub (добавляется только при
         # ContinuousIntegrationBuild=true) попал в restore graph: иначе build --no-restore
         # падает на свежем runner (NU1101).
-        run: dotnet restore AvtoBus.slnx /p:ContinuousIntegrationBuild=true
+        run: dotnet restore AvtoBus.slnx /p:ContinuousIntegrationBuild=true --locked-mode
 
       - name: Build
         run: dotnet build AvtoBus.slnx -c Release --no-restore /p:ContinuousIntegrationBuild=true

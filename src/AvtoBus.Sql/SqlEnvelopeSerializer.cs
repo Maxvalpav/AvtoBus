@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AvtoBus.Sql;
 
@@ -8,12 +9,16 @@ namespace AvtoBus.Sql;
 /// Маппинг <see cref="Envelope"/> на BYTEA-блоб таблицы-очереди: компактный JSON
 /// (метаданные полями, тело — base64). Имена полей совпадают со стандартом заголовков шины (идея 495).
 /// </summary>
-public static class SqlEnvelopeSerializer
+public static partial class SqlEnvelopeSerializer
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
+        TypeInfoResolver = SqlEnvelopeJsonContext.Default,
     };
+
+    /// <summary>Контекст с Web-опциями (camelCase + case-insensitive): wire-формат идентичен legacy.</summary>
+    private static readonly SqlEnvelopeJsonContext Ctx = new(Options);
 
     /// <summary>Сериализует конверт в BYTEA для хранения в таблице.</summary>
     public static byte[] ToBlob(Envelope envelope)
@@ -37,7 +42,7 @@ public static class SqlEnvelopeSerializer
             Headers = envelope.Headers.ToDictionary(StringComparer.Ordinal),
         };
 
-        return JsonSerializer.SerializeToUtf8Bytes(dto, Options);
+        return JsonSerializer.SerializeToUtf8Bytes(dto, Ctx.EnvelopeDto);
     }
 
     /// <summary>Восстанавливает конверт из BYTEA-блоба.</summary>
@@ -46,7 +51,7 @@ public static class SqlEnvelopeSerializer
         EnvelopeDto? dto;
         try
         {
-            dto = JsonSerializer.Deserialize<EnvelopeDto>(blob, Options);
+            dto = JsonSerializer.Deserialize(blob, Ctx.EnvelopeDto);
         }
         catch (JsonException exception)
         {
@@ -113,5 +118,15 @@ public static class SqlEnvelopeSerializer
         public int? Attempt { get; set; }
         public string? Body { get; set; }
         public Dictionary<string, string>? Headers { get; set; }
+    }
+
+    /// <summary>
+    /// Source-generated контекст для DTO (аудит D5): сериализация EnvelopeDto
+    /// статически известна — trim/AOT-safe без ограничений на пользовательские контракты
+    /// (тело сообщения едет base64-строкой и не касается STJ).
+    /// </summary>
+    [JsonSerializable(typeof(EnvelopeDto))]
+    private sealed partial class SqlEnvelopeJsonContext : JsonSerializerContext
+    {
     }
 }

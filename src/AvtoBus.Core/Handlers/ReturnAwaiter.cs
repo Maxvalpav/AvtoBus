@@ -24,6 +24,8 @@ internal sealed class ReturnAwaiter
     /// <summary>Собирает ожидание по типу возврата. Рефлексия — только при старте.</summary>
     [RequiresUnreferencedCode(
         "Разбор типа возврата через рефлексию при старте — reflection-путь диспетчеров (legacy).")]
+    [RequiresDynamicCode(
+        "Компиляция Expression-доступа к Task<T>.Result — reflection-путь диспетчеров (legacy).")]
     public static ReturnAwaiter For(Type returnType)
     {
         if (returnType.IsGenericType
@@ -70,6 +72,7 @@ internal sealed class ReturnAwaiter
     }
 
     [RequiresUnreferencedCode("Компиляция доступа к Task<T>.Result — reflection-путь при старте.")]
+    [RequiresDynamicCode("Компиляция доступа к Task<T>.Result — reflection-путь при старте.")]
     private static Func<object, object?> BuildResultGetter(Type innerType)
     {
         var taskType = typeof(Task<>).MakeGenericType(innerType);
@@ -84,6 +87,7 @@ internal sealed class ReturnAwaiter
     }
 
     [RequiresUnreferencedCode("Компиляция ValueTask<T>.AsTask — reflection-путь при старте.")]
+    [RequiresDynamicCode("Компиляция ValueTask<T>.AsTask — reflection-путь при старте.")]
     private static Func<object, Task> BuildAsTask(Type innerType)
     {
         var valueTaskType = typeof(ValueTask<>).MakeGenericType(innerType);

@@ -6,6 +6,10 @@ namespace AvtoBus.Workflow;
 /// </summary>
 public static class DurableInvokeExtensions
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Дочерний workflow резолвится по имени типа через сканирование сборок — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Дочерний workflow создаётся через Activator по имени типа — несовместимо с NativeAOT.")]
     public static Task<TOut> InvokeChildAsync<TIn, TOut>(this IWorkflowContext ctx, string workflowType, TIn input, CancellationToken ct = default)
         => ctx.ExecuteActivityAsync(async () =>
         {
@@ -13,9 +17,15 @@ public static class DurableInvokeExtensions
             return await workflow.RunAsync(input, ctx).ConfigureAwait(false);
         });
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Дочерний workflow резолвится по имени типа через сканирование сборок — несовместимо с trimming/AOT.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Дочерний workflow создаётся через Activator по имени типа — несовместимо с NativeAOT.")]
     public static Task<TOut> InvokeChildAsync<TOut>(this IWorkflowContext ctx, AvtoWorkflow<object, TOut> workflow, object input, CancellationToken ct = default)
         => ctx.InvokeChildAsync<object, TOut>(workflow.GetType().Name, input, ct);
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Резолв типа workflow по имени — только из InvokeChildAsync.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Создание workflow через Activator — только из InvokeChildAsync.")]
     private static AvtoWorkflow<TIn, TOut> ResolveWorkflow<TIn, TOut>(string workflowType)
     {
         var type = AppDomain.CurrentDomain.GetAssemblies()
