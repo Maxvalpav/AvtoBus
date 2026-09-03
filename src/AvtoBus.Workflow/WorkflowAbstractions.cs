@@ -14,7 +14,13 @@ public interface IWorkflowContext
     Guid NewGuid();
     Task CreateTimer(TimeSpan delay, CancellationToken ct = default);
     Task<T> ExecuteActivityAsync<T>(Func<Task<T>> activity, ActivityOptions? options = null);
+    /// <summary>
+    /// Синхронный фасад прошлого: блокирует поток. Используйте <see cref="ContinueAsNewAsync"/>.
+    /// </summary>
+    [Obsolete("Используйте ContinueAsNewAsync — sync-версия блокирует поток.")]
     void ContinueAsNew(object input);
+    /// <summary>Перезапуск workflow с новым входом (async-версия, не блокирует).</summary>
+    Task ContinueAsNewAsync(object input, CancellationToken ct = default);
 
     // Шаг сна до даты + ожидание внешнего события с таймаутом
     Task SleepUntil(DateTimeOffset at, CancellationToken ct = default);
@@ -108,10 +114,16 @@ public sealed class WorkflowInstanceRunner
         private long _seq = initialSeq;
         public DateTimeOffset Now => clock.GetUtcNow();
         public Guid NewGuid() => Guid.NewGuid();
+        public async Task ContinueAsNewAsync(object input, CancellationToken ct = default)
+        {
+            await store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], ct).ConfigureAwait(false);
+        }
+
+        [Obsolete("Используйте ContinueAsNewAsync — sync-версия блокирует поток.")]
         public void ContinueAsNew(object input)
         {
-            // Синхронный фасад интерфейса: уходим на пул, прямой Wait() дедлочил под SynchronizationContext.
-            Task.Run(() => store.AppendHistoryAsync([new WorkflowHistoryEvent { WorkflowId = workflowId, Sequence = Interlocked.Increment(ref _seq), EventType = "ContinueAsNew", Payload = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(input), CreatedAt = clock.GetUtcNow() }], CancellationToken.None)).GetAwaiter().GetResult();
+            // Legacy sync-фасад: оставлен для совместимости, новым кодом не пользоваться.
+            Task.Run(() => ContinueAsNewAsync(input)).GetAwaiter().GetResult();
         }
 
         public Task SleepUntil(DateTimeOffset at, CancellationToken ct = default)

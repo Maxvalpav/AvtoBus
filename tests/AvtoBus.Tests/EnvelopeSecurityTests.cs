@@ -224,7 +224,7 @@ public class EnvelopeSecurityTests
         var transport = harness.Transport;
 
         // Честно подписанный конверт, но подпись заменена на мусор.
-        var envelope = factory.Create(
+        var envelope = await factory.CreateAsync(
             new OrderPlaced(Guid.NewGuid(), 2m),
             typeof(OrderPlaced),
             messageOptions: null,

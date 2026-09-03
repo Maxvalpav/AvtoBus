@@ -48,7 +48,7 @@ public class SchedulerServiceTests
 
         var (scheduler, factory, codec) = Build(store, transport, TimeProvider.System);
 
-        var envelope = factory.Create(new Ping(DateTime.UtcNow.Ticks), typeof(Ping), null, null);
+        var envelope = await factory.CreateAsync(new Ping(DateTime.UtcNow.Ticks), typeof(Ping), null, null);
         await store.ScheduleAsync(new ScheduledMessage
         {
             Token = Guid.NewGuid(),
@@ -84,7 +84,7 @@ public class SchedulerServiceTests
 
         var (scheduler, factory, codec) = Build(store, transport, TimeProvider.System, leader);
 
-        var envelope = factory.Create(new Ping(1), typeof(Ping), null, null);
+        var envelope = await factory.CreateAsync(new Ping(1), typeof(Ping), null, null);
         var topic = envelope.MessageType; // "scheduling.ping"
 
         await store.UpsertCronAsync(new CronSchedule

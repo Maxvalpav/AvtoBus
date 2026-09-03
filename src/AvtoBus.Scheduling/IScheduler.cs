@@ -27,7 +27,7 @@ internal sealed class DurableScheduler(
         string destination, string? transport = null, string? uniqueKey = null,
         CancellationToken ct = default) where T : class
     {
-        var envelope = envelopes.Create(message, typeof(T), options: null, parent: null);
+        var envelope = await envelopes.CreateAsync(message, typeof(T), options: null, parent: null, ct).ConfigureAwait(false);
         var token = await store.ScheduleAsync(new ScheduledMessage
         {
             Token = Guid.NewGuid(),

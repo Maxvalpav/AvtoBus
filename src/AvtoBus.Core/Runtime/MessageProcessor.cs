@@ -293,7 +293,8 @@ public sealed class MessageProcessor(
 
             case ConsumeOutcome.Skipped or ConsumeOutcome.Superseded:
                 // Осознанный пропуск: каскады не отправляем, но и ошибкой не считаем.
-                BusTelemetry.RecordDecision(activity, "skipped", context.Outcome.ToString().ToLowerInvariant());
+                BusTelemetry.RecordDecision(activity, "skipped",
+                    context.SkipReason ?? context.Outcome.ToString().ToLowerInvariant());
                 return ProcessingDecision.Ack;
         }
 

@@ -165,8 +165,19 @@ public static class BusHeaders
 /// </summary>
 public interface IEnvelopeSecurity
 {
-    /// <summary>Защищает исходящий конверт: подпись (и, если включено, шифрование тела).</summary>
+    /// <summary>
+    /// Защищает исходящий конверт: подпись (и, если включено, шифрование тела).
+    /// Внимание: при включённом лимите отправки может блокировать поток —
+    /// горячий путь используйте <see cref="ProtectOutboundAsync"/>.
+    /// </summary>
     Envelope ProtectOutbound(Envelope envelope, string? serviceIdentity);
+
+    /// <summary>
+    /// Async-версия защиты: не блокирует поток на лимите отправки.
+    /// Дефолт — синхронный вызов (для совместимости кастомных реализаций).
+    /// </summary>
+    ValueTask<Envelope> ProtectOutboundAsync(Envelope envelope, string? serviceIdentity, CancellationToken ct = default)
+        => new(ProtectOutbound(envelope, serviceIdentity));
 
     /// <summary>
     /// Проверяет и открывает входящий конверт. Выбрасывает <see cref="SecurityViolationException"/>

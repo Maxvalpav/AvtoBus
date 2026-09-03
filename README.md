@@ -13,6 +13,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="global.json"><img src="https://img.shields.io/badge/.NET-10.0-purple" alt=".NET 10"></a>
+  <a href="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml"><img src="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/transports-7-green" alt="7 transports">
   <img src="https://img.shields.io/badge/tests-370+-brightgreen" alt="tests">
 </p>
@@ -58,15 +59,13 @@ app.MapPost("/orders", async (PlaceOrder cmd, IBus bus) =>
 
 await app.RunAsync();
 
-// Консьюмер — просто метод по конвенции:
+// Консьюмер — просто метод по конвенции (канонический стиль):
 public static class OrderHandlers
 {
     public static Task Handle(PlaceOrder cmd, ConsumeContext ctx)
         => ctx.PublishAsync(new OrderPlaced(cmd.OrderId, cmd.Total));
 }
 ```
-
-Быстрый старт — в секции ниже: установка пакета, регистрация шины, первый консьюмер.
 
 ## 📦 Проекты
 
@@ -94,7 +93,25 @@ public static class OrderHandlers
 | `AvtoBus.EventCatalog` | словарь доменных событий: статический HTML-сайт и JSON-каталог |
 | `AvtoBus.Cli` | dotnet tool `avtobus`: doctor, contracts, es explain, config, dlq, completion |
 | `AvtoBus.Aspire` | интеграция с .NET Aspire |
+| `AvtoBus.Dashboard` | встраиваемый дашборд: обзор, DLQ (за auth-политикой, опасные действия в проде запрещены) |
+| `AvtoBus.Bridge` | мост между транспортами (например, Kafka ↔ RabbitMQ) |
+| `AvtoBus.Abstractions` | базовые абстракции шины |
+| `AvtoBus.Streams` | стрим-процессинг: окна, join'ы, state stores |
+| `AvtoBus.Workflow` | durable workflow: таймеры, активности, сигналы |
+| `AvtoBus.Durability.PostgreSql` | durability-примитивы на PostgreSQL |
+| `AvtoBus.SchemaRegistry` | реестр схем контрактов |
+| `AvtoBus.Serialization.MessagePack` | MessagePack-сериализатор |
+| `AvtoBus.Serialization.Protobuf` | Protobuf-сериализатор |
 | `AvtoBus.Testing` | тест-харнесс |
+
+## 🚚 Примеры
+
+| Пример | Что показывает |
+|---|---|
+| `samples/AvtoBus.QuickStart` | минимум: шина + RabbitMQ + outbox за 5 минут |
+| `samples/AvtoBus.TwoServices` | два сервиса (Orders/Inventory) через брокер |
+| `samples/AvtoBus.Logistics` | 30 микросервисов на in-memory транспорте |
+| `samples/AvtoBus.AotSample` | Native AOT без рефлексии |
 
 ## 🛠 Разработка
 

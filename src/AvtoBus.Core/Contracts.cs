@@ -51,7 +51,10 @@ public sealed class MessageAttribute : Attribute
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public sealed class HandlerTimeoutAttribute(string timeout) : Attribute
 {
-    public TimeSpan Timeout { get; } = TimeSpan.Parse(timeout);
+    public TimeSpan Timeout { get; } = TimeSpan.TryParse(
+        timeout, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+        ? parsed
+        : throw new ArgumentException($"Некорректный таймаут '{timeout}'. Формат — инвариантный TimeSpan, например \"00:05:00\".", nameof(timeout));
 }
 
 /// <summary>

@@ -37,7 +37,7 @@ public sealed class MessageSession(AvtoBusClient bus, IServiceProvider services)
 
         // Конверт строится тем же путём (маршрутизация, изоляция тенантов, регионы, безопасность),
         // но уходит в outbox текущей транзакции, а не в транспорт.
-        var (envelope, destination, transportName, activity) = bus.Prepare(message, message.GetType(), kind, options, parent: null);
+        var (envelope, destination, transportName, activity) = await bus.PrepareAsync(message, message.GetType(), kind, options, parent: null, ct).ConfigureAwait(false);
         using var _ = activity;
         await sink.EnqueueAsync(envelope, destination.Name, transportName, destination.Kind, ct).ConfigureAwait(false);
     }

@@ -23,7 +23,7 @@ internal sealed class CronBootstrapper(
             var tz = TimeZoneInfo.FindSystemTimeZoneById(reg.TimeZoneId);
             var next = cron.GetNextOccurrence(clock.GetUtcNow(), tz) ?? clock.GetUtcNow().AddYears(1);
 
-            var envelope = envelopeFactory.Create(reg.Payload, reg.PayloadType, options: null, parent: null);
+            var envelope = await envelopeFactory.CreateAsync(reg.Payload, reg.PayloadType, options: null, parent: null, ct).ConfigureAwait(false);
 
             await store.UpsertCronAsync(new CronSchedule
             {
@@ -49,6 +49,11 @@ internal sealed class CronBootstrapper(
 public interface IEnvelopeFactory
 {
     Envelope Create(object message, Type messageType, MessageOptions? options, Envelope? parent);
+
+    /// <summary>Async-версия создания (подпись без блокировки потока). Дефолт — sync-обёртка.</summary>
+    ValueTask<Envelope> CreateAsync(object message, Type messageType, MessageOptions? options, Envelope? parent, CancellationToken ct = default)
+        => new(Create(message, messageType, options, parent));
+
     byte[] Serialize(Envelope envelope);
     Envelope Deserialize(ReadOnlyMemory<byte> blob);
 }
@@ -66,6 +71,9 @@ public sealed class EnvelopeCodecFactory : IEnvelopeFactory
 
     public Envelope Create(object message, Type messageType, MessageOptions? options, Envelope? parent)
         => _inner.Create(message, messageType, options, parent);
+
+    public ValueTask<Envelope> CreateAsync(object message, Type messageType, MessageOptions? options, Envelope? parent, CancellationToken ct = default)
+        => _inner.CreateAsync(message, messageType, options, parent, ct);
 
     public byte[] Serialize(Envelope envelope) => _bytes.Serialize(envelope);
 

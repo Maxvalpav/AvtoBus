@@ -1,0 +1,101 @@
+{
+  "title": "AvtoBus",
+  "uid": "avtobus-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Publish / min",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_publish_count[1m])) * 60", "legendFormat": "publish" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Consume / min",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_consume_count[1m])) * 60", "legendFormat": "consume" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Retry / min",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_retry_count[1m])) * 60", "legendFormat": "retry" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Dead-letter / min",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_deadletter_count[1m])) * 60", "legendFormat": "dlq" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Consume duration p50/p95/p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(avtobus_consume_duration_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(avtobus_consume_duration_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(avtobus_consume_duration_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Queue depth",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "sum(avtobus_queue_depth)", "legendFormat": "depth" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "DLQ size",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum(avtobus_dlq_size)", "legendFormat": "dlq" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Security violations",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_security_violations[5m])) * 60", "legendFormat": "violations/min" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Canary round-trip",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "avg(avtobus_canary_rtt)", "legendFormat": "rtt" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Publish bytes/s",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(avtobus_publish_bytes[1m]))", "legendFormat": "bytes/s" }
+      ]
+    }
+  ]
+}

@@ -121,7 +121,7 @@ public class HandlerAuthorizationTests
 
         using (PrincipalContext.Push(Principal("admin")))
         {
-            var envelope = factory.Create(
+            var envelope = await factory.CreateAsync(
                 new AdminOnlyCommand(Guid.NewGuid(), 1m),
                 typeof(AdminOnlyCommand),
                 messageOptions: null,

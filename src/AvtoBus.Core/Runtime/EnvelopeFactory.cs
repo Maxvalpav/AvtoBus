@@ -23,6 +23,35 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
         "док 01 §codegen). Сериализация тела при зарегистрированном контексте AOT-safe.")]
     public Envelope Create(object message, Type messageType, MessageOptions? messageOptions, Envelope? parent)
     {
+        var envelope = BuildEnvelope(message, messageType, messageOptions, parent);
+
+        // Подключенная подсистема безопасности подписывает (и при включённом шифровании
+        // шифрует) конверт на выходе — до транспорта (идея 451).
+        // Sync-ветка: при включённом OutboundRatePerSecond лимит ждёт через Thread.Sleep —
+        // горячий путь используйте CreateAsync.
+        return options.EnvelopeSecurity is { } security
+            ? security.ProtectOutbound(envelope, InitiatorContext.Get())
+            : envelope;
+    }
+
+    /// <summary>
+    /// Async-версия <see cref="Create"/>: подпись/лимит без блокировки потока.
+    /// Горячий путь отправки (<c>AvtoBusClient</c>, <c>MessageSession</c>) идёт только сюда.
+    /// </summary>
+    public async ValueTask<Envelope> CreateAsync(
+        object message, Type messageType, MessageOptions? messageOptions, Envelope? parent,
+        CancellationToken ct = default)
+    {
+        var envelope = BuildEnvelope(message, messageType, messageOptions, parent);
+
+        if (options.EnvelopeSecurity is { } security)
+            envelope = await security.ProtectOutboundAsync(envelope, InitiatorContext.Get(), ct).ConfigureAwait(false);
+
+        return envelope;
+    }
+
+    private Envelope BuildEnvelope(object message, Type messageType, MessageOptions? messageOptions, Envelope? parent)
+    {
         var serializer = options.Serializers.Default;
 
         var buffer = new ArrayBufferWriter<byte>(256);
@@ -67,11 +96,7 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
             envelope = envelope.WithHeader(BusHeaders.ContentEncoding, "gzip");
         }
 
-        // Подключенная подсистема безопасности подписывает (и при включённом шифровании
-        // шифрует) конверт на выходе — до транспорта (идея 451).
-        return options.EnvelopeSecurity is { } security
-            ? security.ProtectOutbound(envelope, InitiatorContext.Get())
-            : envelope;
+        return envelope;
     }
 
     /// <summary>

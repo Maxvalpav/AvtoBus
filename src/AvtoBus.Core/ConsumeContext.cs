@@ -30,6 +30,11 @@ public class ConsumeContext
 
     public object Message { get; private set; }
 
+    /// <summary>
+    /// Подменяет конверт (и опционально сообщение) в уже созданном контексте —
+    /// для middleware, трансформирующих тело (сжатие, шифрование, маппинг).
+    /// Идентификаторы (MessageId и др.) сохраняйте сами: метод не валидирует.
+    /// </summary>
     internal void ReplaceEnvelope(Envelope envelope, object? message = null)
     {
         Envelope = envelope;
@@ -56,6 +61,9 @@ public class ConsumeContext
     public ConsumeOutcome Outcome { get; internal set; } = ConsumeOutcome.Handled;
 
     public string? DeadLetterReason { get; private set; }
+
+    /// <summary>Причина пропуска (Skip) — отдельно от DLQ, чтобы не смешивать семантику.</summary>
+    public string? SkipReason { get; private set; }
 
     /// <summary>Явно запрошенная задержка перед следующей попыткой.</summary>
     public TimeSpan? DeferralDelay { get; private set; }
@@ -84,9 +92,10 @@ public class ConsumeContext
     /// <summary>Отложенная отправка как каскад.</summary>
     public ValueTask ScheduleAsync<T>(T message, TimeSpan delay) where T : class
     {
-        // Используем системное время для ScheduleAsync каскада — TimeProvider доступен via EnvelopeFactory для точного времени создания;
-        // здесь UtcNow достаточен т.к. задержка относительная, но можно было бы инжектить TimeProvider.
-        var options = new SendOptions { DeliverAt = DateTimeOffset.UtcNow + delay };
+        // Время — через TimeProvider из скоупа (тестируемо с FakeTimeProvider),
+        // задержка относительная, абсолютного точного времени не требуется.
+        var clock = Services.GetService<TimeProvider>() ?? TimeProvider.System;
+        var options = new SendOptions { DeliverAt = clock.GetUtcNow() + delay };
         Enqueue(new OutgoingMessage(message, OutgoingKind.Send, options));
         return ValueTask.CompletedTask;
     }
@@ -121,7 +130,7 @@ public class ConsumeContext
     /// <summary>Сообщение осознанно пропущено (дубликат, устаревшее состояние) — не ошибка (идея 199).</summary>
     public void Skip(string? reason = null)
     {
-        DeadLetterReason = reason;
+        SkipReason = reason;
         Outcome = ConsumeOutcome.Skipped;
     }
 

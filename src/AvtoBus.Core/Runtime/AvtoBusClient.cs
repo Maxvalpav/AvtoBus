@@ -134,7 +134,7 @@ public sealed class AvtoBusClient(
             }
         }
 
-        var (envelope, destination, transportName, activity) = Prepare(message, messageType, kind, messageOptions, parent);
+        var (envelope, destination, transportName, activity) = await PrepareAsync(message, messageType, kind, messageOptions, parent, ct).ConfigureAwait(false);
         using var _ = activity;
 
         if (claimCheck is not null)
@@ -183,6 +183,34 @@ public sealed class AvtoBusClient(
 
         // Ответ адресуется конкретному запросу: CausationId/CorrelationId уже проставлены
         // EnvelopeFactory.Create(parent) до подписи — мутация после ProtectOutbound ломает HMAC.
+
+        return (envelope, destination, ResolveTransportName(messageType, kind), activity);
+    }
+
+    /// <summary>
+    /// Async-версия <see cref="Prepare"/>: подпись/лимит без блокировки потока.
+    /// Горячий путь отправки идёт только сюда; sync-версия — для тестов и совместимости.
+    /// </summary>
+    internal async ValueTask<(Envelope Envelope, TransportDestination Destination, string? TransportName, System.Diagnostics.Activity? PublishActivity)> PrepareAsync(
+        object message,
+        Type messageType,
+        OutgoingKind kind,
+        MessageOptions? messageOptions,
+        Envelope? parent,
+        CancellationToken ct)
+    {
+        var destination = ResolveDestination(messageType, kind, messageOptions, parent);
+
+        var activity = BusTelemetry.StartPublish(registry.NameOf(messageType), destination);
+
+        var envelope = await envelopes.CreateAsync(message, messageType, messageOptions, parent, ct).ConfigureAwait(false);
+
+        // Изоляция тенантов на уровне хранилища (идея 462, уровень B/C): destination
+        if (options.TenantIsolationPolicy is { } isolation && envelope.TenantId is { } tenantId2)
+            destination = isolation.Isolate(destination, tenantId2);
+
+        // Data-residency after isolation — validate actual physical destination
+        options.RegionPolicy?.Validate(envelope, destination);
 
         return (envelope, destination, ResolveTransportName(messageType, kind), activity);
     }
