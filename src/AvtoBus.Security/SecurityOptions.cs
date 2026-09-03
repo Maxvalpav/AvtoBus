@@ -10,13 +10,19 @@ public sealed class SecurityOptions
     /// <summary>Обязательная проверка подписи для входящих сообщений.</summary>
     public bool RequireSignature { get; set; }
 
-    /// <summary>
-    /// Версия схемы подписи исходящих сообщений: 2 (по умолчанию, покрывает маршрутизацию:
+    /// <summary>Версия схемы подписи исходящих сообщений: 2 (по умолчанию, покрывает маршрутизацию:
     /// ReplyTo/PartitionKey/Priority/DeliverAt/TTL/TraceParent/CausationId) или 1 (legacy,
     /// только для поэтапного rollout в смешанном парке — старые сервисы не проверяют v2).
     /// Входящие проверяются по своей версии всегда (v1 без заголовка версии).
     /// </summary>
     public int SignatureVersion { get; set; } = 2;
+
+    /// <summary>
+    /// Минимальная принимаемая версия подписи входящих (аудит B2): v1 не покрывает
+    /// ReplyTo/PartitionKey/DeliverAt/TraceParent и допускает подмену маршрутизации.
+    /// По умолчанию 2 — v1-подписи отклоняются; для поэтапного rollout выставьте 1 явно.
+    /// </summary>
+    public int MinimumSignatureVersion { get; set; } = 2;
 
     /// <summary>Шифровать тело исходящих сообщений (AES-GCM) и открывать входящие.</summary>
     public bool EncryptBody { get; set; }

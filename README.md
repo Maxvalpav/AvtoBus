@@ -52,6 +52,8 @@ builder.Services.AddAvtoBus(bus =>
 // С базой и подписью — тот же один вызов:
 // bus.UseProductionDefaults<AppDbContext>(o => o.MasterSecret = "shared-secret");
 
+var app = builder.Build();
+
 app.MapPost("/orders", async (PlaceOrder cmd, IBus bus) =>
 {
     await bus.SendAsync(cmd);   // команда уйдёт в очередь, консьюмер обработает

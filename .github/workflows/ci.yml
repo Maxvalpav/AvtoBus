@@ -67,7 +67,15 @@ jobs:
         run: dotnet build AvtoBus.slnx -c Release --no-restore
 
       - name: Vulnerable packages gate
-        run: dotnet list AvtoBus.slnx package --vulnerable --include-transitive
+        # NuGetAudit в Directory.Build.props — основные ворота (падает на сборке).
+        # Этот шаг — отчёт + явный fail, т.к. `dotnet list --vulnerable` сам возвращает 0 (аудит D1).
+        run: |
+          out=$(dotnet list AvtoBus.slnx package --vulnerable --include-transitive 2>&1)
+          echo "$out"
+          if echo "$out" | grep -qi "has known vulnerabilities"; then
+            echo "::error::Найдены уязвимые пакеты (см. вывод выше)"
+            exit 1
+          fi
 
       - name: Unit & integration tests
         run: >
@@ -115,8 +123,9 @@ jobs:
               /p:Version=0.1.0-verify -o ./artifacts-verify
           done
           count=$(ls ./artifacts-verify/*.nupkg | wc -l)
-          echo "Packed $count packages (31 libs + 1 cli = 32)"
-          test "$count" -eq 32
+          echo "Packed $count packages"
+          # Аудит D7: без хардкода точного числа — новый пакет не должен ломать CI.
+          test "$count" -ge 32
 
       - name: SBOM (Syft, idea 479)
         run: |

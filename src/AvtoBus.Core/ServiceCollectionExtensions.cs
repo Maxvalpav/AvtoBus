@@ -124,7 +124,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ReplyRouter>(),
             sp.GetRequiredService<MessageRegistry>(),
             sp.GetService<AvtoBus.Runtime.IUniqueStore>(),
-            sp.GetService<AvtoBus.ClaimCheck.ClaimCheckService>()));
+            sp.GetService<AvtoBus.ClaimCheck.ClaimCheckService>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<AvtoBus.Runtime.AvtoBusClient>>()));
         services.AddSingleton<IBus>(sp => sp.GetRequiredService<AvtoBusClient>());
 
         // Scoped-сессия для транзакционной отправки (ADR-0002): сообщения уходят в outbox,

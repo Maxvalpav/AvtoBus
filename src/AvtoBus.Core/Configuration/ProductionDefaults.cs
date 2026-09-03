@@ -41,12 +41,22 @@ public static class ProductionDefaultsExtensions
     /// <summary>
     /// Надёжность без БД: 3 немедленных + 5 отложенных ретраев (экспонента от 5с),
     /// inbox-дедуп 24ч, circuit breaker 5/30с, лимиты заголовков.
+    /// MasterSecret/OutboundRatePerSecond здесь НЕ применяются — fail-fast (аудит B5):
+    /// молча включённая «безопасность» хуже, чем явная ошибка.
     /// </summary>
     public static BusConfigurator UseProductionDefaults(
         this BusConfigurator bus, Action<ProductionOptions>? configure = null)
     {
         var opts = new ProductionOptions();
         configure?.Invoke(opts);
+        if (!string.IsNullOrEmpty(opts.MasterSecret))
+            throw new InvalidOperationException(
+                "ProductionOptions.MasterSecret задан, но базовый UseProductionDefaults() безопасность конвертов не включает. " +
+                "Используйте полный пресет UseProductionDefaults<TDbContext>() из пакета AvtoBus.Outbox.EfCore.");
+        if (opts.OutboundRatePerSecond != 0)
+            throw new InvalidOperationException(
+                "ProductionOptions.OutboundRatePerSecond задан, но базовый UseProductionDefaults() rate limit не включает. " +
+                "Используйте полный пресет UseProductionDefaults<TDbContext>() из пакета AvtoBus.Outbox.EfCore.");
         ApplyCore(bus, opts);
         return bus;
     }

@@ -29,10 +29,13 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
     /// Проверяет подпись входящего конверта всеми поколениями ключей, не расшифровывая тело.
     /// Используется <see cref="SignedPrincipalExtractor"/>: контексту пользователя
     /// (<c>avtobus-user</c>) доверяем только при валидной подписи.
+    /// v1-подписи при MinimumSignatureVersion=2 отклоняются до проверки (аудит B2).
     /// </summary>
     public bool HasValidSignature(Envelope envelope)
     {
         if (envelope.Header(EnvelopeSigner.SignatureHeader) is null)
+            return false;
+        if (!MeetsMinimumVersion(envelope))
             return false;
         return _keys.TryVerify(envelope, static (env, key) => EnvelopeSigner.Verify(env, key), out _);
     }
@@ -106,6 +109,10 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
             if (envelope.Header(EnvelopeSigner.SignatureHeader) is null)
                 throw new SecurityViolationException("Отсутствует подпись, но RequireSignature включён");
 
+            if (!MeetsMinimumVersion(envelope))
+                throw new SecurityViolationException(
+                    $"Подпись v1 отклонена: MinimumSignatureVersion={_options.MinimumSignatureVersion}");
+
             var ok = _keys.TryVerify(
                 envelope,
                 static (env, key) => EnvelopeSigner.Verify(env, key),
@@ -152,6 +159,15 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
         }
 
         return envelope;
+    }
+
+    private bool MeetsMinimumVersion(Envelope envelope)
+    {
+        if (_options.MinimumSignatureVersion <= EnvelopeSigner.V1)
+            return true;
+        // Версия читается из неподписанного заголовка, но здесь это fail-closed:
+        // отсутствие/«1» при минимуме 2 — отказ, а не downgrade проверки (аудит B2).
+        return envelope.Header(EnvelopeSigner.SignatureVersionHeader) == "2";
     }
 }
 

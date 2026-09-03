@@ -56,6 +56,16 @@ public class ProductionDefaultsTests
         Assert.Equal(5, options.Recoverability.DelayedRetryCount);
     }
 
+    [Fact]
+    public void Base_preset_with_secret_fails_fast()
+    {
+        // Аудит B5: молчаливое игнорирование MasterSecret базовым пресетом запрещено.
+        Assert.Throws<InvalidOperationException>(() =>
+            BuildServices(bus => bus.UseProductionDefaults(o => o.MasterSecret = "preset-secret")));
+        Assert.Throws<InvalidOperationException>(() =>
+            BuildServices(bus => bus.UseProductionDefaults(o => o.OutboundRatePerSecond = 100)));
+    }
+
     private static ServiceProvider BuildServices(Action<BusConfigurator> configure)
     {
         var services = new ServiceCollection();

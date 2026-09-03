@@ -8,7 +8,7 @@ namespace AvtoBus.Outbox.EfCore;
 /// Inbox-дедупликация: повторное доставленное сообщение с тем же MessageId потребителю — тихо пускаем мимо.
 /// Оптимистично: конфликт уникального ключа = дубликат (док 15, §6).
 /// </summary>
-public sealed class InboxDedupMiddleware : IBusMiddleware
+public class InboxDedupMiddleware : IBusMiddleware
 {
     private readonly string _consumerId;
 
@@ -21,15 +21,15 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
     /// </summary>
     public TimeSpan InboxWindow { get; set; } = TimeSpan.FromDays(7);
 
-    [Obsolete("Use InboxDedupMiddleware(string consumerId) — IServiceScopeFactory больше не нужен, inbox теперь в том же скоупе что хендлер.", DiagnosticId = "AVB0001", UrlFormat = "https://avtobus.io/docs/15-implementation-outbox#inbox")]
+    [Obsolete("Use InboxDedupMiddleware(string consumerId) — IServiceScopeFactory больше не нужен, inbox теперь в том же скоупе что хендлер.", DiagnosticId = "AVB0001", UrlFormat = "https://github.com/Maxvalpav/AvtoBus/blob/main/docs/15-implementation-outbox.md#inbox")]
     public InboxDedupMiddleware(IServiceScopeFactory _, string consumerId) : this(consumerId) { }
 
     public async ValueTask InvokeAsync(ConsumeContext ctx, BusDelegate next)
     {
-        var consumerId = ctx.Envelope.Header("consumer") ?? _consumerId;
-        // Try resolve any DbContext subtype via IServiceProvider — generic TryFind
-        var db = ctx.Services.GetServices<DbContext>().FirstOrDefault()
-                 ?? ctx.Services.GetService(typeof(DbContext)) as DbContext;
+        // Аудит A4: заголовок "consumer" из конверта НЕ доверенный (не входит в подпись) —
+        // им управляет отправитель. Ключ дедупликации берём только из конфигурации подписки.
+        var consumerId = _consumerId;
+        var db = ResolveDbContext(ctx);
 
         if (db is null)
         {
@@ -79,15 +79,40 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
         }
     }
 
+    /// <summary>
+    /// Выбор DbContext для inbox-записи. По умолчанию — первый зарегистрированный
+    /// (недетерминирован при нескольких контекстах, см. аудит A4): при нескольких
+    /// контекстах используйте <see cref="InboxDedupMiddleware{TDbContext}"/> с явным типом.
+    /// </summary>
+    protected virtual DbContext? ResolveDbContext(ConsumeContext ctx)
+        => ctx.Services.GetServices<DbContext>().FirstOrDefault()
+           ?? ctx.Services.GetService(typeof(DbContext)) as DbContext;
+
     private static bool IsUniqueViolation(DbUpdateException ex)
     {
-        var inner = ex.InnerException;
-        if (inner is not null && inner.GetType().Name == "PostgresException")
+        for (var e = ex.InnerException; e is not null; e = e.InnerException)
         {
-            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            // PostgreSQL: SqlState 23505 — код состояния не зависит от lc_messages (аудит A5).
+            var sqlState = e.GetType().GetProperty("SqlState")?.GetValue(e) as string;
             if (sqlState == "23505") return true;
+
+            // SQL Server: error numbers 2627 (unique constraint) / 2601 (unique index).
+            if (e.GetType().GetProperty("Number")?.GetValue(e) is int number
+                && (number is 2627 or 2601)) return true;
+
+            // SQLite: SqliteErrorCode / Result 19 (SQLITE_CONSTRAINT).
+            if (e.GetType().GetProperty("SqliteErrorCode")?.GetValue(e) is int sqliteCode && sqliteCode == 19)
+                return true;
+            if (e.GetType().GetProperty("SqliteExtendedErrorCode")?.GetValue(e) is int extCode && extCode / 256 == 19)
+                return true;
+
+            // MySQL: error numbers 1062 (duplicate entry).
+            if (e.GetType().GetProperty("Number")?.GetValue(e) is int mysqlNumber && mysqlNumber == 1062
+                && e.GetType().FullName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true) return true;
         }
 
+        // Текстовый fallback — последний шанс для неизвестных провайдеров (локале-зависим, см. аудит A5).
+        var inner = ex.InnerException;
         return inner?.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) == true
                || inner?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true
                || inner?.Message.Contains("23505", StringComparison.OrdinalIgnoreCase) == true;
@@ -111,4 +136,17 @@ public sealed class InboxDedupMiddleware : IBusMiddleware
         }
         return false;
     }
+}
+
+/// <summary>
+/// Типизированный inbox-дедуп с явным DbContext (аудит A4): при нескольких контекстах
+/// в приложении гарантирует запись inbox в ту же БД, что и бизнес-данные.
+/// </summary>
+/// <typeparam name="TDbContext">Контекст, в котором лежат бизнес-данные и inbox-таблица.</typeparam>
+public sealed class InboxDedupMiddleware<TDbContext>(string consumerId) : InboxDedupMiddleware(consumerId)
+    where TDbContext : DbContext
+{
+    protected override DbContext? ResolveDbContext(ConsumeContext ctx)
+        => ctx.Services.GetService<TDbContext>() as DbContext
+           ?? base.ResolveDbContext(ctx);
 }

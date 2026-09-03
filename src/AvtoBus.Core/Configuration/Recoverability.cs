@@ -172,8 +172,9 @@ public sealed class RecoverabilitySettings
         if (exception is OperationCanceledException)
             return RetryClass.Transient;
 
-        // Fail-open: неизвестные критичные исключения (OOM, StackOverflow) не должны ретраиться
-        if (exception is OutOfMemoryException or StackOverflowException or RegionViolationException)
+        // Fail-open: неизвестные критичные исключения (OOM) не должны ретраиться.
+        // StackOverflowException сюда не входит: в .NET его перехватить нельзя (аудит §8).
+        if (exception is OutOfMemoryException or RegionViolationException)
             return RetryClass.Permanent;
 
         return RetryClass.Transient;

@@ -48,13 +48,25 @@ public class SecurityDecisionsTests
     [Fact]
     public void Legacy_v1_envelope_still_verifies_and_v1_emission_supported()
     {
-        var v1 = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; o.SignatureVersion = 1; });
+        var v1 = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; o.SignatureVersion = 1; o.MinimumSignatureVersion = 1; });
         var signed = v1.ProtectOutbound(NewEnvelope(), "svc");
         Assert.Null(signed.Header("avtobus-sig-version"));
 
-        // Новая сторона принимает старые подписи (in-flight при rollout).
-        var current = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; });
+        // Старая сторона принимает старые подписи только при явном MinimumSignatureVersion=1 (rollout).
+        var current = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; o.MinimumSignatureVersion = 1; });
         Assert.NotNull(current.OpenInbound(signed));
+    }
+
+    [Fact]
+    public void V1_signature_rejected_by_default_minimum_version()
+    {
+        var v1 = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; o.SignatureVersion = 1; o.MinimumSignatureVersion = 1; });
+        var signed = v1.ProtectOutbound(NewEnvelope(), "svc");
+
+        // Строгий режим по умолчанию (MinimumSignatureVersion=2): v1 отклоняется (аудит B2).
+        var strict = Security(o => { o.MasterSecret = "s2"; o.RequireSignature = true; });
+        Assert.Throws<SecurityViolationException>(() => strict.OpenInbound(signed));
+        Assert.False(strict.HasValidSignature(signed));
     }
 
     [Fact]

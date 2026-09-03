@@ -26,11 +26,14 @@ public sealed class ConsumerHost(
     private readonly List<ConsumerRunner> _runners = [];
     private int _stopped;
 
+    /// <summary>Атомарный снапшот ранеров: публикуется один раз после старта (аудит C1).</summary>
+    private volatile ConsumerRunner[] _snapshot = [];
+
     /// <summary>Состояние консьюмеров — для health-модели и дашборда (идея 49).</summary>
-    public IReadOnlyList<ConsumerRunner> Runners => _runners;
+    public IReadOnlyList<ConsumerRunner> Runners => _snapshot;
 
     /// <summary>Цикл приёма каждого ранера завершён (остановка получена или дрейн).</summary>
-    public bool AllReceivingStopped => _runners.Count > 0 && _runners.All(runner => runner.RunTask is { IsCompleted: true });
+    public bool AllReceivingStopped => _snapshot.Length > 0 && _snapshot.All(runner => runner.RunTask is { IsCompleted: true });
 
     /// <summary>
     /// Lag каждой подписки: сколько сообщений ещё ждёт в источнике. Для топика считаем
@@ -41,8 +44,9 @@ public sealed class ConsumerHost(
     {
         get
         {
-            var lags = new Dictionary<string, long>(StringComparer.Ordinal);
-            foreach (var runner in _runners)
+            var snapshot = _snapshot;
+            var lags = new Dictionary<string, long>(snapshot.Length, StringComparer.Ordinal);
+            foreach (var runner in snapshot)
                 lags[runner.Name] = runner.Lag;
             return lags;
         }
@@ -76,15 +80,19 @@ public sealed class ConsumerHost(
 
         _runners.Add(new ConsumerRunner(replySubscription, processor, options, time, logger));
 
-        logger.LogInformation("AvtoBus запущен: {Count} консьюмеров", _runners.Count);
+        // Публикуем снапшот атомарно: читатели Runners/ConsumerLags/StopAsync видят
+        // либо пустой, либо полный набор — без InvalidOperationException при перечислении List (аудит C1).
+        _snapshot = _runners.ToArray();
+
+        logger.LogInformation("AvtoBus запущен: {Count} консьюмеров", _snapshot.Length);
 
         // Запускаем все циклы приёма; их задачи нужны и для сигнала «приём остановлен» (идея 35).
-        foreach (var runner in _runners)
+        foreach (var runner in _snapshot)
             runner.RunTask = runner.RunAsync(stoppingToken);
 
         try
         {
-            await Task.WhenAll(_runners.Select(runner => runner.RunTask!)).ConfigureAwait(false);
+            await Task.WhenAll(_snapshot.Select(runner => runner.RunTask!)).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -233,8 +241,8 @@ public sealed class ConsumerHost(
         }
 
         // 1. Перестаём брать новые сообщения. In-flight обработки продолжают работать:
-        // их доделываем, а не отменяем (идея 35).
-        foreach (var runner in _runners)
+        // их доделываем, а не отменяем (идея 35). Читаем снапшот — старт мог ещё не опубликовать его.
+        foreach (var runner in _snapshot)
             runner.StopReceiving();
 
         // 2. Дрейн: ждём завершения начатых обработок в пределах ShutdownDrainTimeout.
@@ -249,7 +257,7 @@ public sealed class ConsumerHost(
         using var drain = new CancellationTokenSource(drainTimeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drain.Token);
 
-        foreach (var runner in _runners)
+        foreach (var runner in _snapshot)
             await runner.DrainAsync(linked.Token).ConfigureAwait(false);
 
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
@@ -257,7 +265,7 @@ public sealed class ConsumerHost(
         // Ранеры держат CTS + SemaphoreSlim + PartitionRouter: без Dispose они текли
         // до конца жизни хоста (заметно в тестах с пересозданием хостов).
         // Дрейн уже завершён, поэтому DisposeAsync возвращается сразу.
-        foreach (var runner in _runners)
+        foreach (var runner in _snapshot)
         {
             try { await runner.DisposeAsync().ConfigureAwait(false); }
             catch (Exception ex) { logger.LogDebug(ex, "Ошибка Dispose ранера {Consumer}", runner.Name); }

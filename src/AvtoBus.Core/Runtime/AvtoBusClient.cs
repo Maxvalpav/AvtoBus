@@ -1,5 +1,7 @@
 using AvtoBus.Configuration;
 using AvtoBus.Observability;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AvtoBus.Runtime;
 
@@ -14,8 +16,10 @@ public sealed class AvtoBusClient(
     ReplyRouter replies,
     MessageRegistry registry,
     IUniqueStore? uniqueStore = null,
-    AvtoBus.ClaimCheck.ClaimCheckService? claimCheck = null) : IBus
+    AvtoBus.ClaimCheck.ClaimCheckService? claimCheck = null,
+    ILogger<AvtoBusClient>? logger = null) : IBus
 {
+    private readonly ILogger<AvtoBusClient> _log = logger ?? NullLogger<AvtoBusClient>.Instance;
     /// <summary>Кэш UniqueJobAttribute на тип: GetCustomAttributes аллоцирует на каждое сообщение.</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, UniqueJobAttribute?> UniqueJobAttributeCache = new();
 
@@ -79,7 +83,13 @@ public sealed class AvtoBusClient(
                 if (transport is IScheduleCancellable cancellable)
                     cancellable.CancelScheduled(token.Value);
             }
-            catch { /* best effort per-transport */ }
+            catch (Exception ex)
+            {
+                // Best effort per-transport, но молча глотать нельзя (аудит §7.4):
+                // несработавшая отмена = неожиданная доставка.
+                _log.LogWarning(ex, "CancelScheduled({MessageId}) не удался на транспорте {Transport}",
+                    token.Value, transport.Name);
+            }
         }
 
         return ValueTask.CompletedTask;

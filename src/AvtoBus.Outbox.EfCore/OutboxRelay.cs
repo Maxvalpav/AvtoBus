@@ -19,6 +19,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
     private readonly IOutboxSignal _signal;
     private readonly OutboxOptions _opt;
     private readonly ILogger<OutboxRelay> _log;
+    private readonly TimeProvider _time;
     private readonly string _claimBy = $"{Environment.MachineName}/{Environment.ProcessId}";
     private long _pending;
 
@@ -28,7 +29,8 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         IEnvelopeSerializer ser,
         IOutboxSignal signal,
         OutboxOptions opt,
-        ILogger<OutboxRelay> log)
+        ILogger<OutboxRelay> log,
+        TimeProvider? time = null)
     {
         _scopes = scopes;
         _transports = transports;
@@ -36,6 +38,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         _signal = signal;
         _opt = opt;
         _log = log;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>Прокси текущего количества сообщений: count(pending) по последнему pump-срезу.</summary>
@@ -97,13 +100,15 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
 
             // claim: FOR UPDATE SKIP LOCKED в транзакции — каждую строку может взять только один relay.
             // ClaimedAt старше StaleClaim считается осиротевшим (relay умер после claim, до отправки) и пере-claim'ится.
-            var staleBefore = DateTime.UtcNow - _opt.StaleClaim;
+            // Время — через TimeProvider (аудит G1): DateTime.UtcNow ломал StaleClaim при рассинхроне часов.
+            var now = _time.GetUtcNow().UtcDateTime;
+            var staleBefore = now - _opt.StaleClaim;
             claimed = await db.Set<OutboxMessage>()
                 .FromSqlInterpolated($"""
                     SELECT * FROM avtobus_outbox
                     WHERE "SentAt" IS NULL
                       AND ("ClaimedAt" IS NULL OR "ClaimedAt" <= {staleBefore})
-                      AND ("SendAfter" IS NULL OR "SendAfter" <= {DateTime.UtcNow})
+                      AND ("SendAfter" IS NULL OR "SendAfter" <= {now})
                     ORDER BY "Id"
                     LIMIT {_opt.BatchSize}
                     FOR UPDATE SKIP LOCKED
@@ -120,7 +125,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
 
             foreach (var m in claimed)
             {
-                m.ClaimedAt = DateTime.UtcNow;
+                m.ClaimedAt = now;
                 m.ClaimedBy = _claimBy;
             }
 
@@ -136,6 +141,8 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
             new ParallelOptions { MaxDegreeOfParallelism = _opt.Parallelism, CancellationToken = ct },
             async (group, token) =>
             {
+                // Head-of-line внутри ключа (аудит 1.2): упало одно сообщение ключа —
+                // остаток группы не отправляем, иначе порядок per key нарушается.
                 foreach (var m in group)
                 {
                     try
@@ -154,7 +161,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                     {
                         _log.LogWarning(ex, "Outbox-отправка не удалась для {MessageId}", m.MessageId);
                         lock (failed) failed.Add((m.Id, ex.Message));
-                        continue;
+                        break;
                     }
                 }
             });
@@ -165,13 +172,14 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
 
             await using var markScope = _scopes.CreateAsyncScope();
             var markDb = markScope.ServiceProvider.GetRequiredService<DbContext>();
+            var markedAt = _time.GetUtcNow().UtcDateTime;
 
             // Маркировка — идемпотентная фиксация уже отправленного факта: завершаем её даже при
             // остановке, иначе сообщение «отправлено, но SentAt не проставлен» вернётся дублем.
             await markDb.Set<OutboxMessage>()
                 .Where(o => sent.Contains(o.Id))
                 .ExecuteUpdateAsync(s => s
-                    .SetProperty(o => o.SentAt, DateTime.UtcNow)
+                    .SetProperty(o => o.SentAt, markedAt)
                     .SetProperty(o => o.ClaimedAt, (DateTime?)null), CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -186,7 +194,7 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
                 .ToDictionary(m => m.Id, m => m.Attempt);
             await using var failScope = _scopes.CreateAsyncScope();
             var failDb = failScope.ServiceProvider.GetRequiredService<DbContext>();
-            await MarkFailedAsync(failDb, failed, attempts, CancellationToken.None).ConfigureAwait(false);
+            await MarkFailedAsync(failDb, failed, attempts, CancellationToken.None, _time).ConfigureAwait(false);
         }
 
         return claimed.Count;
@@ -200,7 +208,8 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         DbContext db,
         IReadOnlyCollection<(long Id, string Error)> failed,
         IReadOnlyDictionary<long, int> attempts,
-        CancellationToken ct)
+        CancellationToken ct,
+        TimeProvider? time = null)
     {
         var sql = new System.Text.StringBuilder(
             "UPDATE avtobus_outbox SET \"Attempt\" = \"Attempt\" + 1, \"ClaimedAt\" = NULL, \"SendAfter\" = CASE \"Id\" ");
@@ -221,12 +230,13 @@ public sealed class OutboxRelay : BackgroundService, AvtoBus.Observability.IOutb
         }
 
         var i = 0;
+        var clock = time ?? TimeProvider.System;
         foreach (var (id, error) in failed)
         {
             attempts.TryGetValue(id, out var attempt);
             // Было 2^Attempt без cap — Attempt=20 давал ~12 суток и переполнение.
             var delaySeconds = Math.Min(Math.Pow(2, Math.Min(attempt, 10)) * (0.8 + Random.Shared.NextDouble() * 0.4), 3600);
-            var sendAfter = DateTime.UtcNow.AddSeconds(delaySeconds);
+            var sendAfter = clock.GetUtcNow().UtcDateTime.AddSeconds(delaySeconds);
             sql.Append($"WHEN @id{i} THEN @sa{i} ");
             err.Append($"WHEN @id{i} THEN @err{i} ");
             ids.Append(i == 0 ? $"@id{i}" : $", @id{i}");

@@ -85,6 +85,9 @@ public sealed class AvtoBusConfigValidator : IValidateOptions<AvtoBusConfigurati
         if (string.IsNullOrWhiteSpace(options.ServiceName))
             errors.Add($"{AvtoBusConfiguration.SectionName}:ServiceName is required.");
 
+        if (string.IsNullOrWhiteSpace(options.DefaultTransport))
+            errors.Add($"{AvtoBusConfiguration.SectionName}:DefaultTransport is required (must match a registered transport name).");
+
         if (options.CircuitBreakerThreshold < 0)
             errors.Add($"{AvtoBusConfiguration.SectionName}:CircuitBreakerThreshold must be >= 0.");
 
