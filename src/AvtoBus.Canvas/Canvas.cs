@@ -241,6 +241,7 @@ public static class CanvasExtensions
         bus.Services.AddSingleton(store);
         bus.Services.AddSingleton<CanvasMiddleware>();
         bus.Pipeline(b => b.Use<CanvasMiddleware>());
+        AvtoBus.Configuration.ProductionGuard.WarnExperimental(bus.Options, "AvtoBus.Canvas");
         return bus;
     }
 }

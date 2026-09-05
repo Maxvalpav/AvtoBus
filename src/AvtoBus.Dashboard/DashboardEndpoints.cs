@@ -23,6 +23,24 @@ public static class DashboardEndpoints
     {
         var options = endpoints.ServiceProvider.GetRequiredService<DashboardOptions>();
 
+        // Fail-fast в Production (аудит, 03 §3.2): дашборд без auth-политики запрещён.
+        // RequireAuthorization с пустым именем молча ничего не защищает — ловим это при старте.
+        if (string.IsNullOrWhiteSpace(options.PolicyName))
+            throw new InvalidOperationException(
+                "DashboardOptions: PolicyName пуст — дашборд остался бы без авторизации. " +
+                "Задайте имя authorization policy или не маппите дашборд.");
+        if (IsProductionEnvironment() && !options.IsProduction)
+        {
+            // Авто-харденинг: в Production опасные действия (replay/delete) блокируются,
+            // пока оператор явно не разрешит их через AllowDangerousOperationsInProduction.
+            options.IsProduction = true;
+        }
+
+        // Пакет experimental (уровни зрелости, 03 §1.1): предупреждение в стартовых логах.
+        endpoints.ServiceProvider
+            .GetService<AvtoBus.Configuration.BusOptions>()?
+            .AddStartupWarning("Пакет AvtoBus.Dashboard — experimental: без гарантий совместимости, API может меняться в минорных версиях.");
+
         var group = endpoints.MapGroup(options.RoutePrefix).RequireAuthorization(options.PolicyName);
 
         group.MapGet("/api/overview", async (DashboardService service, HttpContext http) =>
@@ -62,4 +80,8 @@ public static class DashboardEndpoints
 
         return endpoints;
     }
+
+    private static bool IsProductionEnvironment()
+        => string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"), "Production", StringComparison.OrdinalIgnoreCase);
 }

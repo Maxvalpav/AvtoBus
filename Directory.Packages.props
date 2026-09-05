@@ -39,6 +39,9 @@
     <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+    <!-- E-05: implicit-пакет SDK пиним явно, чтобы lock-файлы не трескались на новом SDK.
+         Версия = та, что привозит SDK 10.0.302 (см. project.assets.json после restore). -->
+    <PackageVersion Include="Microsoft.NET.ILLink.Tasks" Version="10.0.10" />
     <PackageVersion Include="MinVer" Version="6.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.4" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.4" />

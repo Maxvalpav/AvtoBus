@@ -20,6 +20,10 @@
     <!-- Аудит D1: ворота уязвимостей. С TreatWarningsAsErrors NU1901–NU1904 становятся ошибками сборки. -->
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
+    <!-- E-06: семплы/бенчмарки/тесты не пакуются — `dotnet pack AvtoBus.slnx`
+         собирает только src/*. Условие по пути (IsPackable в props ещё не видно).
+         src/AvtoBus.Templates под правило не попадает (путь src/, не tests/). -->
+    <IsPackable Condition="$(MSBuildProjectDirectory.Contains('samples')) == 'true' or $(MSBuildProjectDirectory.Contains('benchmarks')) == 'true' or $(MSBuildProjectDirectory.Contains('tests')) == 'true'">false</IsPackable>
     <!-- Аудит D2: детерминированный restore. Lock-файлы коммитятся;
          CI проверяет locked mode, Dependabot-регены — обязанность автора PR. -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -46,6 +50,26 @@
   <ItemGroup Label="MinVer" Condition="'$(IsPackable)' == 'true' or '$(IsPackable)' == ''">
     <PackageReference Include="MinVer" PrivateAssets="all" />
   </ItemGroup>
+
+  <!-- E-05: SDK тащит Microsoft.NET.ILLink.Tasks неявно с плавающей версией (от версии SDK),
+       из-за чего трескались lock-файлы. Делаем ссылку явной — версия берётся из CPM
+       (Directory.Packages.props), restore детерминирован на любом SDK 10.0.x. -->
+  <ItemGroup Label="SDK implicit pin">
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Уровни зрелости пакетов (аудит 03 §1.1): Stable — SemVer и совместимость;
+       Preview — API может меняться в миноре; Experimental — без гарантий.
+       Уровень виден в PackageTags и в стартовых логах (WarnExperimental). -->
+  <PropertyGroup Label="Package maturity">
+    <AvtoBusStableProjects>;AvtoBus;AvtoBus.Abstractions;AvtoBus.Core;AvtoBus.Generators;AvtoBus.InMemory;AvtoBus.Outbox.EfCore;AvtoBus.RabbitMq;AvtoBus.Testing;</AvtoBusStableProjects>
+    <AvtoBusExperimentalProjects>;AvtoBus.Actors;AvtoBus.Bridge;AvtoBus.Canvas;AvtoBus.Dashboard;AvtoBus.EventSourcing;AvtoBus.Multitenancy;AvtoBus.SchemaRegistry;AvtoBus.Streams;AvtoBus.Workflow;</AvtoBusExperimentalProjects>
+    <AvtoBusMaturity Condition="$(AvtoBusStableProjects.Contains(';$(MSBuildProjectName);'))">stable</AvtoBusMaturity>
+    <AvtoBusMaturity Condition="'$(AvtoBusMaturity)' == '' and $(AvtoBusExperimentalProjects.Contains(';$(MSBuildProjectName);'))">experimental</AvtoBusMaturity>
+    <AvtoBusMaturity Condition="'$(AvtoBusMaturity)' == ''">preview</AvtoBusMaturity>
+    <!-- Для непакуемых (тесты/семплы/бенчмарки) тег ни на что не влияет. -->
+    <PackageTags>avtobus;avtobus-maturity-$(AvtoBusMaturity)</PackageTags>
+  </PropertyGroup>
 
   <PropertyGroup Label="SourceLink">
     <!-- Символы и SourceLink включаются только в release-сборке CI

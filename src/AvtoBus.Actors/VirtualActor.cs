@@ -56,8 +56,11 @@ public abstract class VirtualActor<TState> : IActor, IDisposable where TState : 
     }
     private async Task RunReminderAsync(string name, TimeSpan due, TimeSpan period, CancellationToken ct)
     {
-        try { await Task.Delay(due, ct).ConfigureAwait(false);
-              while (!ct.IsCancellationRequested) { await OnReminderAsync(name, ct).ConfigureAwait(false); await Task.Delay(period, ct).ConfigureAwait(false); } }
+        try
+        {
+            await Task.Delay(due, ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested) { await OnReminderAsync(name, ct).ConfigureAwait(false); await Task.Delay(period, ct).ConfigureAwait(false); }
+        }
         catch (OperationCanceledException) { }
         catch (Exception)
         {

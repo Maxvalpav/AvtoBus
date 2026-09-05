@@ -5,6 +5,59 @@
 
 ## [Unreleased]
 
+### Исправлено
+
+- Ранняя запись `0.1.0` от 2026-08-14 переименована в `0.0.1` (дубликат версии);
+  добавлены compare-ссылки внизу файла (Keep a Changelog).
+- README: убран литерал `"shared-secret"` (заменён чтением из конфигурации) и
+  статический бейдж `tests 370+`; формулировка exactly-once для Kafka уточнена
+  (только Kafka→Kafka, внешние эффекты — inbox/идемпотентность).
+- XML-пример `AddAvtoBusSecurity`: секрет из конфигурации, а не литерал.
+
+### Безопасность (supply chain)
+
+- `curl | sh` из ветки `main` (Syft) заменён на `anchore/sbom-action@v0.24.2`
+  в `ci.yml` и `release.yml`; все `uses:` запинены по SHA коммита.
+
+### CI
+
+- Pack-валидация: ручной список из 32 проектов заменён на `dotnet pack AvtoBus.slnx`
+  (`IsPackable=false` для тестов/семплов/бенчмарков в `Directory.Build.props`).
+- Новая джоба `format`: `dotnet format --verify-no-changes` (код нормализован).
+- Dependabot: добавлен `dotnet-sdk` для автобампа `global.json`.
+
+### Документация
+
+- Публичная документация заведна в git через allowlist в `.gitignore`
+  (10 страниц: `index`, `getting-started`, `decision-guide`, `guarantees`, `outbox`,
+  `security`, `observability`, `migration`, `compatibility`, `faq`);
+  внутренние черновики остаются локальными.
+- Новый workflow `docs.yml`: проверка allowlist + битые ссылки в `docs/`
+  (деплой на Pages — следующим шагом после включения Pages в настройках репо).
+
+### CI
+
+- Матрица ОС для unit-сьютов (`ubuntu`/`windows`/`macos`, E-12): быстрые тесты
+  без брокеров гоняются везде, включая CLI-пути на Windows.
+
+### Изменено (breaking для preview)
+
+- Тонкое ядро (E-01): `Hangfire`, `Mongo`, `Actors`, `Canvas` вынесены из
+  `AvtoBus.Core` в пакеты `AvtoBus.Hangfire`, `AvtoBus.Mongo`, `AvtoBus.Actors`,
+  `AvtoBus.Canvas` (пространства имён не менялись — только assembly).
+  Граница ядра защищена архитектурным тестом `CoreBoundariesTests`.
+  Замечание: внешних зависимостей (Hangfire.Core/MongoDB.Driver) в ядре не было —
+  вынос убирает концептуальное раздутие и AOT-hostile код из базового пакета.
+- `global.json`: возвращён `rollForward: latestPatch`; плавающая версия
+  `Microsoft.NET.ILLink.Tasks` закреплена в CPM явным `PackageReference` (E-05).
+- Уровни зрелости пакетов (Stable/Preview/Experimental): таблица в README,
+  тег `avtobus-maturity-*` в `PackageTags`, warning в стартовых логах для experimental.
+- Fail-fast в Production (`ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT=Production`):
+  слабый `MasterSecret`, `RequireSignature=false`, дашборд без auth-политики —
+  ошибка старта; in-memory как единственный транспорт — warning в лог.
+  Покрыто тестами `ProductionGuardsTests` (перегрузки с явным флагом окружения,
+  переменные процесса в тестах не трогаем).
+
 ## [0.1.3] - 2026-09-03 — чинка релизного конвейера
 
 ### Исправлено
@@ -258,7 +311,13 @@ MinVer-only версии (у taskVersionPrefix удалён); CI vulnerable-gate
 - **EnvelopeSecurity**: `ProtectOutboundAsync` + `RateLimiter` с jitter 0–30 ms (thundering herd).
 - **Инфра**: `Dockerfile.chiseled` → `avtobus` (`AssemblyName=avtobus`), `docker-compose.dev` пины образов + `healthcheck` + NATS, `CI` concurrency + `postgres:17`/`kafka:3.8.0`, pack 31 lib + CLI (32 пакета).
 
-## [0.1.0] - 2026-08-14 — ядро
+## [0.0.1] - 2026-08-14 — ядро
 
 Первоначальная реализация ядра: конверт, пайплайн, recoverability, транспорт InMemory,
 outbox на EF Core, саги, source generator, тест-харнесс.
+
+[0.0.1]: https://github.com/Maxvalpav/AvtoBus/releases/tag/v0.0.1
+[0.1.0]: https://github.com/Maxvalpav/AvtoBus/compare/v0.0.1...v0.1.0
+[0.1.1]: https://github.com/Maxvalpav/AvtoBus/compare/v0.1.0...v0.1.1
+[0.1.2]: https://github.com/Maxvalpav/AvtoBus/compare/v0.1.1...v0.1.2
+[0.1.3]: https://github.com/Maxvalpav/AvtoBus/compare/v0.1.2...v0.1.3

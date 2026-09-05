@@ -138,7 +138,8 @@ public sealed class OutboxPostgresTests
 
     [Fact]
     public async Task Outbox_and_business_data_commit_atomically()
-    {        var cs = await RequirePgAsync();
+    {
+        var cs = await RequirePgAsync();
         await using var db = new TestOutboxContext(Options(cs));
         await db.Database.EnsureCreatedAsync();
 

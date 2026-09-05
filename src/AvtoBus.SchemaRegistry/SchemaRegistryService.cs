@@ -26,6 +26,7 @@ public static class SchemaRegistryBusExtensions
         configure(registry);
         bus.Services.AddSingleton<ISchemaRegistry>(registry);
         bus.Services.AddHostedService<SchemaRegistryService>();
+        ProductionGuard.WarnExperimental(bus.Options, "AvtoBus.SchemaRegistry");
         return bus;
     }
 
@@ -34,6 +35,7 @@ public static class SchemaRegistryBusExtensions
         var registry = new InMemorySchemaRegistry();
         bus.Services.AddSingleton<ISchemaRegistry>(registry);
         bus.Services.AddHostedService<SchemaRegistryService>();
+        ProductionGuard.WarnExperimental(bus.Options, "AvtoBus.SchemaRegistry");
         return bus;
     }
 }

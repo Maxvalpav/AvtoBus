@@ -1,5 +1,7 @@
 {
   "ignorePatterns": [
-    { "pattern": "mailto:" }
+    { "pattern": "mailto:" },
+    { "pattern": "^http://localhost" },
+    { "pattern": "^https://localhost" }
   ]
 }

@@ -84,6 +84,7 @@ public static class MultitenancyServiceCollectionExtensions
         // даже если хендлер не дойдёт до обработки.
         configurator.Pipeline(builder => builder.Use<TenantRateLimitMiddleware>());
 
+        AvtoBus.Configuration.ProductionGuard.WarnExperimental(configurator.Options, "AvtoBus.Multitenancy");
         return configurator;
     }
 }

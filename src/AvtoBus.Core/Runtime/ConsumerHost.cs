@@ -91,6 +91,11 @@ public sealed class ConsumerHost(
 
         logger.LogInformation("AvtoBus запущен: {Count} консьюмеров", _snapshot.Length);
 
+        // Стартовые предупреждения конфигурации (experimental-пакеты, in-memory в
+        // Production и т.п.): видны в логах каждого подъёма, пропустить сложно.
+        foreach (var warning in options.StartupWarnings)
+            logger.LogWarning("AvtoBus: {Warning}", warning);
+
         // Запускаем все циклы приёма; их задачи нужны и для сигнала «приём остановлен» (идея 35).
         foreach (var runner in _snapshot)
             runner.RunTask = runner.RunAsync(stoppingToken);

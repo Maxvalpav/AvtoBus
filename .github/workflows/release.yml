@@ -12,12 +12,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        # Без dotnet-version: версия берётся из global.json (точный пин SDK для
+        # воспроизводимости lock-файлов) — детерминированно и синхронно с локальной разработкой.
 
       - name: Derive version from tag
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
@@ -34,55 +34,19 @@ jobs:
       - name: Test
         run: dotnet test AvtoBus.slnx -c Release --no-build
 
-      - name: Pack libraries
-        # dotnet pack принимает ровно один проект за вызов (MSB1008 на этой версии SDK),
-        # поэтому перебираем проекты циклом.
-        run: |
-          for proj in \
-            src/AvtoBus.Abstractions \
-            src/AvtoBus.Core \
-            src/AvtoBus.InMemory \
-            src/AvtoBus.RabbitMq \
-            src/AvtoBus.Sql \
-            src/AvtoBus.Kafka \
-            src/AvtoBus.Nats \
-            src/AvtoBus.Redis \
-            src/AvtoBus.AzureServiceBus \
-            src/AvtoBus.Outbox.EfCore \
-            src/AvtoBus.Sagas \
-            src/AvtoBus.EventSourcing \
-            src/AvtoBus.Scheduling \
-            src/AvtoBus.Security \
-            src/AvtoBus.Multitenancy \
-            src/AvtoBus.Dashboard \
-            src/AvtoBus.AsyncApi \
-            src/AvtoBus.EventCatalog \
-            src/AvtoBus.Generators \
-            src/AvtoBus.Analyzers \
-            src/AvtoBus.Testing \
-            src/AvtoBus.Aspire \
-            src/AvtoBus.Templates \
-            src/AvtoBus.Bridge \
-            src/AvtoBus.Durability.PostgreSql \
-            src/AvtoBus.SchemaRegistry \
-            src/AvtoBus.Streams \
-            src/AvtoBus.Workflow \
-            src/AvtoBus.Serialization.MessagePack \
-            src/AvtoBus.Serialization.Protobuf \
-            src/AvtoBus ; do
-            dotnet pack "$proj" -c Release --no-build /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
-          done
-
-      - name: Pack CLI tool
+      - name: Pack libraries + CLI tool
+        # E-06: пакуем slnx целиком (src/* + Cli) — новый пакет подхватится автоматически.
+        # Тесты/семплы/бенчмарки исключены через IsPackable=false в Directory.Build.props.
         run: >
-          dotnet pack src/AvtoBus.Cli -c Release --no-build
+          dotnet pack AvtoBus.slnx -c Release --no-build
           /p:Version=${{ env.VERSION }} /p:ContinuousIntegrationBuild=true -o ./artifacts
 
-      - name: Generate SBOM (Syft, idea 479)
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp
-          /tmp/syft ./artifacts -o spdx-json=./artifacts/sbom.spdx.json
-          ls -lh ./artifacts/sbom.spdx.json
+      - name: Generate SBOM (anchore/sbom-action, idea 479)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: ./artifacts
+          format: spdx-json
+          output-file: ./artifacts/sbom.spdx.json
 
       - name: Push to NuGet (OIDC trusted publishing preferred, fallback to API key)
         run: |
@@ -105,7 +69,7 @@ jobs:
           NUGET_AUTH_TOKEN: ${{ secrets.NUGET_API_KEY }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: ./artifacts/*
           generate_release_notes: true

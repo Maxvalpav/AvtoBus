@@ -16,3 +16,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "dotnet-sdk"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Автобамп global.json: security-патчи SDK без ручных PR (E-05).

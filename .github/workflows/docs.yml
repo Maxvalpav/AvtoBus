@@ -1,0 +1,48 @@
+name: Docs
+
+on:
+  push:
+    branches: [main, 'release/*']
+    paths: ['docs/**', 'README.md', 'CHANGELOG.md', 'SECURITY.md']
+  pull_request:
+    branches: [main]
+    paths: ['docs/**', 'README.md', 'CHANGELOG.md', 'SECURITY.md']
+  workflow_dispatch:
+
+# Least privilege.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Docs validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+
+      - name: Check public docs allowlist matches gitignore
+        run: |
+          # Каждый незаигноренный файл docs/ обязан быть в allowlist .gitignore —
+          # иначе черновик случайно уедет в публичный доступ.
+          git status --porcelain=v1 --untracked-files=all -- docs/ | head -20
+          for f in docs/index.md docs/guarantees.md docs/decision-guide.md docs/compatibility.md \
+                   docs/getting-started.md docs/outbox.md docs/security.md docs/observability.md \
+                   docs/migration.md docs/faq.md; do
+            test -f "$f" || { echo "::error::missing public page $f"; exit 1; }
+            git check-ignore -q "$f" && { echo "::error::$f is gitignored but expected public"; exit 1; }
+          done
+          # Черновики обязаны оставаться заигноренными.
+          git check-ignore -q docs/01-architecture.md || { echo "::error::draft docs/01-architecture.md is NOT ignored"; exit 1; }
+          echo "docs allowlist OK"
+
+      - name: Check markdown links (docs/)
+        uses: gaurav-nelson/github-action-markdown-link-check@5c5dfc0ac2e225883c0e5f03a85311ec2830d368 # v1
+        with:
+          use-quiet-mode: 'yes'
+          folder-path: 'docs'
+
+# Публикация на GitHub Pages (E-02, следующий шаг): включить Pages в настройках
+# репозитория (Settings → Pages → Source: GitHub Actions), после чего добавить сюда
+# jobs build (upload-pages-artifact, path docs/) + deploy (deploy-pages)
+# с permissions pages: write + id-token: write. Пока сайт не включён — только валидация.

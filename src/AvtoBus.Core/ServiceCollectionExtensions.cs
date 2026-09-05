@@ -28,6 +28,9 @@ public static class ServiceCollectionExtensions
         var configurator = new BusConfigurator(services, options);
         configure(configurator);
 
+        // Fail-fast/предупреждения Production-окружения (аудит, недели 2–3).
+        ProductionGuard.CheckTransports(options, services);
+
         RegisterCore(services, options);
 
         services.AddSingleton<ConsumerHost>();
@@ -57,6 +60,9 @@ public static class ServiceCollectionExtensions
         }
         var configurator = new BusConfigurator(services, options);
         configure(configurator);
+
+        // Fail-fast/предупреждения Production-окружения (аудит, недели 2–3).
+        ProductionGuard.CheckTransports(options, services);
 
         RegisterCore(services, options);
         return services;

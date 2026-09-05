@@ -27,7 +27,19 @@ bench-base/
 *.snupkg
 *.trx
 
-# Внутренняя рабочая документация (исследования, идеи, черновики) — пока вне репозитория
-docs/
+# Внутренние рабочие материалы (исследования, идеи, черновики) — вне git по умолчанию.
+# Публичная документация — только файлы из allowlist ниже (E-02): черновики со
+# статусом "design draft / unverified" не публикуем, чтобы не выдавать эскизы за продукт.
+docs/*
+!docs/index.md
+!docs/guarantees.md
+!docs/decision-guide.md
+!docs/compatibility.md
+!docs/getting-started.md
+!docs/outbox.md
+!docs/security.md
+!docs/observability.md
+!docs/migration.md
+!docs/faq.md
 # Внешние аудиты — рабочие материалы, не часть репозитория
 audit/

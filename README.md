@@ -16,7 +16,6 @@
   <a href="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml"><img src="https://github.com/Maxvalpav/AvtoBus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/Maxvalpav/AvtoBus"><img src="https://codecov.io/gh/Maxvalpav/AvtoBus/branch/main/graph/badge.svg" alt="Coverage"></a>
   <img src="https://img.shields.io/badge/transports-7-green" alt="7 transports">
-  <img src="https://img.shields.io/badge/tests-370+-brightgreen" alt="tests">
 </p>
 
 ---
@@ -49,8 +48,9 @@ builder.Services.AddAvtoBus(bus =>
     bus.UseProductionDefaults(); // ретраи + inbox-дедуп + circuit breaker в одну строку
 });
 
-// С базой и подписью — тот же один вызов:
-// bus.UseProductionDefaults<AppDbContext>(o => o.MasterSecret = "shared-secret");
+// С базой и подписью — тот же один вызов (секрет — из конфигурации, не литералом):
+// builder.Configuration["AvtoBus:MasterSecret"] или IOptions<SecurityOptions>.
+// bus.UseProductionDefaults<AppDbContext>(o => o.MasterSecret = builder.Configuration["AvtoBus:MasterSecret"]!);
 
 var app = builder.Build();
 
@@ -93,6 +93,16 @@ public static class OrderHandlers
 Outbox поверх любого транспорта: at-least-once + FIFO per `PartitionKey` (партиционные лизы),
 inbox-дедуп или идемпотентный хендлер обязательны. Подпись конвертов: v3 + anti-replay.
 
+## 🏷 Зрелость пакетов
+
+| Уровень | Обещание | Пакеты |
+|---|---|---|
+| **Stable** | SemVer, wire-совместимость, миграции | `Abstractions`, `Core`, `InMemory`, `RabbitMq`, `Outbox.EfCore`, `Testing`, `Generators`, метапакет `AvtoBus` |
+| **Preview** | API может меняться в миноре | `Kafka`, `Nats`, `Redis`, `Sql`, `AzureServiceBus`, `Sagas`, `Scheduling`, `Security`, `Analyzers`, `Cli`, `AsyncApi`, `EventCatalog`, `Aspire`, `Durability.PostgreSql`, `Serialization.MessagePack`, `Serialization.Protobuf`, `Templates`, `Hangfire`, `Mongo` |
+| **Experimental** | Без гарантий, использование пишет warning в лог при старте | `Streams`, `Workflow`, `Actors`, `Canvas`, `EventSourcing`, `Multitenancy`, `Dashboard`, `Bridge`, `SchemaRegistry` |
+
+Уровень также зашит в `PackageTags` (`avtobus-maturity-stable|preview|experimental`).
+
 ## 📦 Проекты
 
 | Пакет | Назначение | Доставка |
@@ -100,12 +110,16 @@ inbox-дедуп или идемпотентный хендлер обязате
 | `AvtoBus` | метапакет: Core + InMemory + JSON — единая точка входа | — |
 | `AvtoBus.Templates` | шаблоны проектов: `dotnet new avtobus-worker`, `dotnet new avtobus-webapi` | — |
 | `AvtoBus.Core` | ядро: конверт, пайплайн, recoverability, метрики | — |
+| `AvtoBus.Hangfire` | Hangfire-style фоновые задачи поверх шины (expression-API) | — |
+| `AvtoBus.Mongo` | outbox для document store (абстракция `IMongoOutboxStore`) | — |
+| `AvtoBus.Actors` | виртуальные акторы поверх шины | — |
+| `AvtoBus.Canvas` | компоновка сообщений: chain/group/chord | — |
 | `AvtoBus.InMemory` | in-memory транспорт | at-least-once в процессе |
 | `AvtoBus.RabbitMq` | RabbitMQ-транспорт: quorum queues, stream-топики, publisher confirms, DLQ | at-least-once, порядок в очереди |
 | `AvtoBus.Outbox.EfCore` | транзакционный outbox на EF Core | атомарность с бизнес-транзакцией |
 | `AvtoBus.Sagas` | саги и durable execution | — |
 | `AvtoBus.Scheduling` | cron, отложенные сообщения, leader election | — |
-| `AvtoBus.Kafka` | Kafka-транспорт: партиции по ключу, back-pressure | at-least-once; exactly-once опционально (транзакции) |
+| `AvtoBus.Kafka` | Kafka-транспорт: партиции по ключу, back-pressure | at-least-once; транзакции только для Kafka→Kafka (внешние эффекты — inbox/идемпотентность) |
 | `AvtoBus.Nats` | NATS/JetStream-транспорт: durable push-consumers, queue groups, KV | at-least-once |
 | `AvtoBus.Redis` | Redis Streams-транспорт: consumer groups, XAUTOCLAIM | at-least-once |
 | `AvtoBus.Sql` | SQL-транспорт: PostgreSQL таблица-очередь, SKIP LOCKED + LISTEN/NOTIFY | at-least-once |
@@ -129,6 +143,19 @@ inbox-дедуп или идемпотентный хендлер обязате
 | `AvtoBus.Serialization.MessagePack` | MessagePack-сериализатор | — |
 | `AvtoBus.Serialization.Protobuf` | Protobuf-сериализатор | — |
 | `AvtoBus.Testing` | тест-харнесс | — |
+
+## 📚 Документация
+
+- [`docs/index.md`](docs/index.md) — указатель: старт, концепции, ссылки.
+- [`docs/getting-started.md`](docs/getting-started.md) — установка и первое сообщение.
+- [`docs/decision-guide.md`](docs/decision-guide.md) — какой транспорт выбрать.
+- [`docs/guarantees.md`](docs/guarantees.md) — гарантии доставки честно.
+- [`docs/outbox.md`](docs/outbox.md) — транзакционная доставка и дедуп.
+- [`docs/security.md`](docs/security.md) — подписи, шифрование, fail-fast.
+- [`docs/observability.md`](docs/observability.md) — метрики, трейсы, алерты.
+- [`docs/migration.md`](docs/migration.md) — breaking-изменения и обновления.
+- [`docs/compatibility.md`](docs/compatibility.md) — wire-формат и совместимость.
+- [`docs/faq.md`](docs/faq.md) — частые вопросы.
 
 ## 🚚 Примеры
 

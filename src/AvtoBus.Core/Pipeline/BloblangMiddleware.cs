@@ -55,7 +55,7 @@ public sealed class BloblangMiddleware : IBusMiddleware
         {
             var line = raw.Trim();
             if (string.IsNullOrEmpty(line) || line.StartsWith("#")) continue;
-            if (line is "root = this" or "root = this.without()" )
+            if (line is "root = this" or "root = this.without()")
             { list.Add(new Stmt(true, null, null, null, null, null)); continue; }
             var m = System.Text.RegularExpressions.Regex.Match(line, @"^root\.(?<t>\w+)\s*=\s*this\.(?<s>\w+)(\s*\*\s*(?<f>[\d\.]+))?(\s*\|\s*(?<func>\w+\(\)))?", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
             if (m.Success)

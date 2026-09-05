@@ -28,6 +28,10 @@
     <ProjectReference Include="..\..\src\AvtoBus.Testing\AvtoBus.Testing.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Streams\AvtoBus.Streams.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Workflow\AvtoBus.Workflow.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Hangfire\AvtoBus.Hangfire.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Mongo\AvtoBus.Mongo.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Actors\AvtoBus.Actors.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Canvas\AvtoBus.Canvas.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Abstractions\AvtoBus.Abstractions.csproj" />
   </ItemGroup>
 

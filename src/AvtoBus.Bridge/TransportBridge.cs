@@ -113,6 +113,7 @@ public static class BridgeBusExtensions
         configure(opts);
         bus.Services.AddSingleton(opts);
         bus.Services.AddHostedService<TransportBridge>();
+        ProductionGuard.WarnExperimental(bus.Options, "AvtoBus.Bridge");
         return bus;
     }
 }

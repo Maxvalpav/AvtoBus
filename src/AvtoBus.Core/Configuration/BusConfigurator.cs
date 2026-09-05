@@ -129,6 +129,20 @@ public sealed class BusOptions
 
     internal List<Action<PipelineBuilder>> PipelineSteps { get; } = [];
 
+    /// <summary>
+    /// Предупреждения конфигурации, собранные при старте (experimental-пакеты,
+    /// in-memory в Production и т.п.). <see cref="Runtime.ConsumerHost"/> пишет их
+    /// в лог при подъёме. Добавляются через <see cref="AddStartupWarning"/>.
+    /// </summary>
+    public List<string> StartupWarnings { get; } = [];
+
+    /// <summary>Добавить стартовое предупреждение (видно в логах при подъёме хоста).</summary>
+    public void AddStartupWarning(string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        StartupWarnings.Add(message);
+    }
+
     internal List<IMessageDispatcher> Dispatchers { get; } = [];
 
     /// <summary>Типы middleware, добавленные в пайплайн ровно один раз (саги, outbox).</summary>

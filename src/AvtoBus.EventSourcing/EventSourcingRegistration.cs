@@ -25,6 +25,7 @@ public static class EventSourcingRegistration
         var options = new EventSourcingOptions();
         configure?.Invoke(options);
 
+        ProductionGuard.WarnExperimental(bus.Options, "AvtoBus.EventSourcing");
         bus.Services.AddSingleton(options);
 
         bus.Services.AddSingleton(sp => sp.GetRequiredService<EventSourcingOptions>().SnapshotPolicy);

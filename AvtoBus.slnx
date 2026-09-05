@@ -32,6 +32,10 @@
     <Project Path="src/AvtoBus.Durability.PostgreSql/AvtoBus.Durability.PostgreSql.csproj" />
     <Project Path="src/AvtoBus.Bridge/AvtoBus.Bridge.csproj" />
     <Project Path="src/AvtoBus.SchemaRegistry/AvtoBus.SchemaRegistry.csproj" />
+    <Project Path="src/AvtoBus.Hangfire/AvtoBus.Hangfire.csproj" />
+    <Project Path="src/AvtoBus.Mongo/AvtoBus.Mongo.csproj" />
+    <Project Path="src/AvtoBus.Actors/AvtoBus.Actors.csproj" />
+    <Project Path="src/AvtoBus.Canvas/AvtoBus.Canvas.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/AvtoBus.Benchmarks/AvtoBus.Benchmarks.csproj" />

@@ -20,6 +20,64 @@ permissions:
   contents: read
 
 jobs:
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
+
+      - name: Restore
+        run: dotnet restore AvtoBus.slnx --locked-mode
+
+      - name: Verify formatting
+        run: dotnet format AvtoBus.slnx --verify-no-changes --no-restore
+
+  unit-matrix:
+    # E-12: быстрые unit-сьюты без брокеров — на трёх ОС (включая Windows для CLI-путей).
+    name: Unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
+
+      - name: Restore
+        run: dotnet restore AvtoBus.slnx --locked-mode
+
+      - name: Build
+        run: dotnet build AvtoBus.slnx -c Release --no-restore
+
+      - name: Test Generators
+        run: dotnet test tests/AvtoBus.GeneratorTests -c Release --no-build
+
+      - name: Test Analyzers
+        run: dotnet test tests/AvtoBus.AnalyzerTests -c Release --no-build
+
+      - name: Test AsyncApi
+        run: dotnet test tests/AvtoBus.AsyncApiTests -c Release --no-build
+
+      - name: Test EventCatalog
+        run: dotnet test tests/AvtoBus.EventCatalogTests -c Release --no-build
+
+      - name: Test CLI
+        run: dotnet test tests/AvtoBus.CliTests -c Release --no-build
+
+      - name: Test Dashboard
+        run: dotnet test tests/AvtoBus.DashboardTests -c Release --no-build
+
+      - name: Test Aspire
+        run: dotnet test tests/AvtoBus.AspireTests -c Release --no-build
+
   build:
     name: Build & Tests
     runs-on: ubuntu-latest
@@ -54,10 +112,10 @@ jobs:
       # Секрет прокидывается в env, чтобы его можно было проверить в if:.
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
@@ -86,55 +144,27 @@ jobs:
       - name: Pack validation (release pipeline smoke)
         run: |
           mkdir -p ./artifacts-verify
-          for proj in \
-            src/AvtoBus.Abstractions \
-            src/AvtoBus.Core \
-            src/AvtoBus.InMemory \
-            src/AvtoBus.RabbitMq \
-            src/AvtoBus.Sql \
-            src/AvtoBus.Kafka \
-            src/AvtoBus.Nats \
-            src/AvtoBus.Redis \
-            src/AvtoBus.AzureServiceBus \
-            src/AvtoBus.Outbox.EfCore \
-            src/AvtoBus.Sagas \
-            src/AvtoBus.EventSourcing \
-            src/AvtoBus.Scheduling \
-            src/AvtoBus.Security \
-            src/AvtoBus.Multitenancy \
-            src/AvtoBus.Dashboard \
-            src/AvtoBus.AsyncApi \
-            src/AvtoBus.EventCatalog \
-            src/AvtoBus.Generators \
-            src/AvtoBus.Analyzers \
-            src/AvtoBus.Testing \
-            src/AvtoBus.Aspire \
-            src/AvtoBus.Templates \
-            src/AvtoBus.Bridge \
-            src/AvtoBus.Durability.PostgreSql \
-            src/AvtoBus.SchemaRegistry \
-            src/AvtoBus.Streams \
-            src/AvtoBus.Workflow \
-            src/AvtoBus.Serialization.MessagePack \
-            src/AvtoBus.Serialization.Protobuf \
-            src/AvtoBus \
-            src/AvtoBus.Cli ; do
-            dotnet pack "$proj" -c Release --no-build --no-restore \
-              /p:Version=0.1.0-verify -o ./artifacts-verify
-          done
+          # E-06: пакуем slnx целиком — новый пакет в src/ подхватится автоматически.
+          # Тесты/семплы/бенчмарки исключены через IsPackable=false в Directory.Build.props.
+          dotnet pack AvtoBus.slnx -c Release --no-build --no-restore \
+            /p:Version=0.1.0-verify -o ./artifacts-verify
           count=$(ls ./artifacts-verify/*.nupkg | wc -l)
           echo "Packed $count packages"
           # Аудит D7: без хардкода точного числа — новый пакет не должен ломать CI.
           test "$count" -ge 32
 
-      - name: SBOM (Syft, idea 479)
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp
-          /tmp/syft ./artifacts-verify -o spdx-json=./artifacts-verify/sbom.spdx.json
-          ls -lh ./artifacts-verify/sbom.spdx.json
+      - name: SBOM (anchore/sbom-action, idea 479)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: ./artifacts-verify
+          format: spdx-json
+          output-file: ./artifacts-verify/sbom.spdx.json
+
+      - name: Check SBOM exists
+        run: ls -lh ./artifacts-verify/sbom.spdx.json
 
       - name: Upload nupkgs + SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nupkgs-verify
           path: ./artifacts-verify/*
@@ -142,7 +172,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results
           path: '**/TestResults/*.trx'
@@ -150,7 +180,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ env.CODECOV_TOKEN != '' }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: '**/coverage.cobertura.xml'
           fail_ci_if_error: true
@@ -159,9 +189,9 @@ jobs:
     name: Logistics sample (30 microservices, InMemory)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
@@ -196,9 +226,9 @@ jobs:
     env:
       AVTOBUS_RABBIT_URL: amqp://guest:guest@localhost:5672/
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
@@ -269,9 +299,9 @@ jobs:
       AVTOBUS_NATS_URL: nats://localhost:4222
       AVTOBUS_REDIS_URL: localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Restore
@@ -288,7 +318,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: conformance-external-results
           path: '**/TestResults/*.trx'
@@ -299,16 +329,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         # Без dotnet-version: версия берётся из global.json — детерминированно и синхронно с локальной разработкой.
 
       - name: Run core benchmark
         run: dotnet run -c Release --project benchmarks/AvtoBus.Benchmarks --filter *PublishLatencyBench* --job short
 
       - name: Upload raw artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-results
           path: BenchmarkDotNet.Artifacts/results/
@@ -318,7 +348,7 @@ jobs:
     name: Docs sanity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check markdown links
-        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        uses: gaurav-nelson/github-action-markdown-link-check@5c5dfc0ac2e225883c0e5f03a85311ec2830d368 # v1

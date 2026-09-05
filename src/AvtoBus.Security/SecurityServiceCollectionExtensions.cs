@@ -10,7 +10,9 @@ namespace AvtoBus.Security;
 ///
 /// services.AddAvtoBusSecurity(bus = bus.UseEnvelopeSecurity(sec =>
 /// {
-///     sec.MasterSecret = "shared-secret";
+///     // Секрет — из конфигурации (секреты не хранят в коде):
+///     // dotnet user-secrets set "AvtoBus:MasterSecret" "..." или env AVTOBUS_MASTERSECRET.
+///     sec.MasterSecret = configuration["AvtoBus:MasterSecret"] ?? throw new InvalidOperationException("AvtoBus:MasterSecret is not configured.");
 ///     sec.RequireSignature = true;
 ///     sec.EncryptBody = true;
 ///     sec.OutboundRatePerSecond = 5000;
@@ -39,6 +41,8 @@ public static class SecurityServiceCollectionExtensions
                 throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured outside Development. Set MasterSecret or call UseKeys/UseGeneratedKeys.");
             options.MasterSecret = "avtobus-development-only";
         }
+
+        ProductionSecurityGuard.ThrowIfWeakForProduction(options);
 
         services.AddSingleton(options);
         services.AddSingleton(sp => new EnvelopeSecurity(
@@ -78,6 +82,8 @@ public static class SecurityServiceCollectionExtensions
                 throw new InvalidOperationException("SecurityOptions: MasterSecret/Keys must be configured outside Development.");
             options.MasterSecret = "avtobus-development-only";
         }
+
+        ProductionSecurityGuard.ThrowIfWeakForProduction(options);
 
         var security = new EnvelopeSecurity(options);
 

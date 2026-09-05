@@ -8,7 +8,7 @@ public sealed class AllowlistResolver(BusOptions busOptions, MessageRegistry reg
 {
     public bool TryResolve(string messageType, out Type type)
     {
-        if (busOptions.AllowedMessageTypes is { Count: >0 } allow && !allow.Contains(messageType))
+        if (busOptions.AllowedMessageTypes is { Count: > 0 } allow && !allow.Contains(messageType))
         {
             type = null!;
             return false;
