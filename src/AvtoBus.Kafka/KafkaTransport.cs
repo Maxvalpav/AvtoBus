@@ -20,7 +20,7 @@ namespace AvtoBus.Kafka;
 /// — Порядок по ключу (идея 60): PartitionKey → Kafka key → партиция → порядок внутри
 ///   партиции сохранён; один консьюмер на подписку читает последовательно.
 /// </summary>
-public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposable
+public sealed class KafkaTransport : ITransport, IConsumerLagProvider, Runtime.IDelayedRetryMapper, IDisposable
 {
     private readonly KafkaOptions _options;
     private readonly IProducer<string, byte[]> _producer;
@@ -57,6 +57,17 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
     }
 
     public string Name => TransportNames.Kafka;
+
+    /// <summary>
+    /// Отложенный ретрай — в тот же топик: <c>Source</c> уже <c>Queue(топик)</c>,
+    /// группа перечитает его после срока из schedule-стора (04 §1.1).
+    /// </summary>
+    public static TransportDestination MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription) => source;
+
+    TransportDestination Runtime.IDelayedRetryMapper.MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription)
+        => MapRetryDestination(source, subscription);
 
     /// <summary>Оценка лага группы — для метрики consumer.lag (идея 334). Точность — как у OFFSET query.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;

@@ -19,7 +19,7 @@ namespace AvtoBus.Sql;
 /// — Зависшие сообщения: claim истекает через ReclaimTimeout — сообщение возвращается в доставку.
 /// — Reject(requeue) = сброс claim + visible_at=now + инкремент DeliveryAttempt; Reject(без requeue) = DELETE.
 /// </summary>
-public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
+public sealed class SqlTransport : ITransport, Runtime.ISupportsDelayedDelivery, IConsumerLagProvider, IDisposable
 {
     private readonly SqlOptions _options;
     private readonly NpgsqlDataSource _dataSource;

@@ -12,6 +12,7 @@ namespace AvtoBus.InMemory;
 /// </summary>
 public sealed class InMemoryTransport : ITransport,
     Runtime.IScheduleCancellable,
+    Runtime.ISupportsDelayedDelivery,
     AvtoBus.Observability.IQueueDepthProvider
 {
     private readonly ConcurrentDictionary<string, InMemoryQueue> _queues = new(StringComparer.Ordinal);

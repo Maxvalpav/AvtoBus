@@ -13,7 +13,7 @@ public sealed record LocalQueueSettings(string Name, int Capacity = 10_000);
 /// фоновая задача внутри сервиса, перенести которую в отдельный модуль позже нельзя, и ей не нужен
 /// внешний exchange. Очередь создаётся при старте, back-pressure идёт по построению канала (идея 353).
 /// </summary>
-public sealed class LocalQueueTransport : ITransport, AvtoBus.Observability.IQueueDepthProvider
+public sealed class LocalQueueTransport : ITransport, Runtime.ISupportsDelayedDelivery, AvtoBus.Observability.IQueueDepthProvider
 {
     private readonly ConcurrentDictionary<string, LocalQueue> _queues = new(StringComparer.Ordinal);
     private readonly TimeProvider _time;

@@ -85,9 +85,9 @@ public static class OrderHandlers
 | InMemory | at-least-once в процессе | FIFO в очереди | ✅ | `.error`/`.poison`/`.expired` | ✅ (всегда) |
 | RabbitMQ | at-least-once, confirms | в очереди | ✅ | ✅ | ✅ (сервис в CI) |
 | SQL (PostgreSQL) | at-least-once, SKIP LOCKED | выборка по Id | ✅ | ✅ | ✅ (сервис в CI) |
-| Kafka | at-least-once (idempotent producer) | внутри партиции | — | ✅ | ✅ (сервис в CI) |
-| NATS JetStream | at-least-once | per subject | — | ✅ | ✅ (сервис в CI) |
-| Redis Streams | at-least-once, groups | per stream | — | ✅ | ✅ (сервис в CI) |
+| Kafka | at-least-once (idempotent producer) | внутри партиции | ✅ через scheduling-фолбэк | ✅ | ✅ (сервис в CI) |
+| NATS JetStream | at-least-once | per subject | ✅ через scheduling-фолбэк | ✅ | ✅ (сервис в CI) |
+| Redis Streams | at-least-once, groups | per stream | ✅ через scheduling-фолбэк | ✅ | ✅ (сервис в CI) |
 | Azure Service Bus | at-least-once (PeekLock) | сессии | scheduled | ✅ | ⚠️ ручной (нужен Azure) |
 
 Outbox поверх любого транспорта: at-least-once + FIFO per `PartitionKey` (партиционные лизы),

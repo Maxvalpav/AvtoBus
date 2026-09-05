@@ -42,6 +42,9 @@ public static class SchedulingRegistration
 
         bus.Services.AddSingleton<ICronRegistry, CronRegistry>();
         bus.Services.AddSingleton<IScheduler, DurableScheduler>();
+        // Единая отложенная доставка для транспортов без нативной задержки
+        // (04 §1.1): ConsumerRunner складывает ретрай с DeliverAt сюда.
+        bus.Services.AddSingleton<Runtime.IDelayedDeliveryFallback, DelayedDeliveryFallback>();
         bus.Services.AddHostedService<CronBootstrapper>();
         bus.Services.AddHostedService<SchedulerService>();
         return bus;

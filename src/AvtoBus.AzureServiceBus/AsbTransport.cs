@@ -17,7 +17,7 @@ namespace AvtoBus.AzureServiceBus;
 /// — Отложенные (идея 86-совместимо): ScheduledEnqueueTime — натив.
 /// — Lock renew (идея 62): фоновая задача продлевает lock, пока хендлер работает.
 /// </summary>
-public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
+public sealed class AsbTransport : ITransport, Runtime.ISupportsDelayedDelivery, IConsumerLagProvider, IDisposable
 {
     private readonly AsbOptions _options;
     private readonly ServiceBusClient _client;

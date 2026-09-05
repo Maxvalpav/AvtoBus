@@ -10,10 +10,23 @@
 | InMemory | at-least-once в процессе | FIFO в очереди | ✅ | `.error`/`.poison`/`.expired` |
 | RabbitMQ | at-least-once, publisher confirms | в очереди | ✅ | ✅ |
 | SQL (PostgreSQL) | at-least-once, SKIP LOCKED | выборка по Id | ✅ | ✅ |
-| Kafka | at-least-once (idempotent producer) | внутри партиции | — (эмулируется через `AvtoBus.Scheduling`) | ✅ |
-| NATS JetStream | at-least-once | per subject | — | ✅ |
-| Redis Streams | at-least-once, consumer groups | per stream | — | ✅ |
+| Kafka | at-least-once (idempotent producer) | внутри партиции | ✅ через scheduling-фолбэк | ✅ |
+| NATS JetStream | at-least-once | per subject | ✅ через scheduling-фолбэк | ✅ |
+| Redis Streams | at-least-once, consumer groups | per stream | ✅ через scheduling-фолбэк | ✅ |
 | Azure Service Bus | at-least-once (PeekLock) | сессии | scheduled enqueue | ✅ |
+
+## Отложенная доставка без нативной поддержки (04 §1.1)
+
+`DeferAsync` и ретрай с бэкоффом работают одинаково везде: на InMemory, RabbitMQ,
+SQL и ASB — нативно (`ISupportsDelayedDelivery`), на Kafka/NATS/Redis — через
+фолбэк в `IScheduleStore` (нужен `UseScheduling`, in-memory или EF-стор):
+ретрай персистится со сроком и возвращается в транспорт штатным циклом шедулера.
+
+Адрес ретрая выбирает транспорт (`IDelayedRetryMapper`): Kafka/Redis — в тот же
+топик/стрим (группа перечитает), NATS — в исходную подписку (синтетический
+`Queue("{dest}:{group}")` не читает никто). Следствия: NATS-топики дают fan-out
+копию всем группам — включайте inbox-дедуп (`UseRedisInbox`/`UseInMemoryInbox`);
+без `UseScheduling` задержка громко отбрасывается (warning) с немедленным requeue.
 
 Conformance-сьюты в CI: все, кроме Azure Service Bus (для него нужен живой Azure,
 прогон ручной).

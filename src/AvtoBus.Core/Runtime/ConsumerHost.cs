@@ -20,7 +20,8 @@ public sealed class ConsumerHost(
     MessageProcessor processor,
     ReplyRouter replies,
     TimeProvider time,
-    ILogger<ConsumerHost> logger)
+    ILogger<ConsumerHost> logger,
+    IDelayedDeliveryFallback? fallback = null)
     : BackgroundService, AvtoBus.Observability.IConsumerLagProvider
 {
     private readonly List<ConsumerRunner> _runners = [];
@@ -68,7 +69,7 @@ public sealed class ConsumerHost(
             if (parallelism < 1)
                 throw new InvalidOperationException(
                     $"MaxParallelism должен быть >= 1 (подписка '{subscription.Subscription.Destination.Name}').");
-            var runner = new ConsumerRunner(subscription, processor, options, time, logger);
+            var runner = new ConsumerRunner(subscription, processor, options, time, logger, fallback);
             _runners.Add(runner);
         }
 
@@ -82,7 +83,7 @@ public sealed class ConsumerHost(
                 new TransportSubscription(TransportDestination.Queue(replies.ReplyAddress), options.ServiceName),
                 MessageType: null);
 
-            _runners.Add(new ConsumerRunner(replySubscription, processor, options, time, logger));
+            _runners.Add(new ConsumerRunner(replySubscription, processor, options, time, logger, fallback));
         }
 
         // Публикуем снапшот атомарно: читатели Runners/ConsumerLags/StopAsync видят

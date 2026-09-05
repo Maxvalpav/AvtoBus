@@ -17,7 +17,8 @@ public sealed class ConsumerRunner(
     MessageProcessor processor,
     BusOptions options,
     TimeProvider time,
-    ILogger logger) : IAsyncDisposable
+    ILogger logger,
+    IDelayedDeliveryFallback? fallback = null) : IAsyncDisposable
 {
     private readonly CircuitBreaker _breaker = new(
         options.CircuitBreakerThreshold,
@@ -227,6 +228,53 @@ public sealed class ConsumerRunner(
         CancellationToken ct)
     {
         var delayed = message.Envelope.NextAttempt() with { DeliverAt = time.GetUtcNow() + delay };
+
+        // Транспорт с нативной задержкой — прямой путь (как раньше).
+        if (subscription.Transport is ISupportsDelayedDelivery)
+        {
+            await subscription.Transport
+                .SendAsync(delayed, source, ct)
+                .ConfigureAwait(false);
+
+            await message.AcknowledgeAsync(ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Единая отложенная доставка через schedule-стор (04 §1.1): адрес ретрая
+        // спрашиваем у транспорта (NATS маппит на исходную подписку), иначе — source.
+        var target = subscription.Transport is IDelayedRetryMapper mapper
+            ? mapper.MapRetryDestination(source, subscription.Subscription)
+            : source;
+
+        var accepted = false;
+        if (fallback is not null)
+        {
+            try
+            {
+                accepted = await fallback.TryDeferAsync(
+                    delayed, target, subscription.Transport.Name, delay, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Fallback отложенной доставки отказал для {MessageId} — немедленный requeue",
+                    message.Envelope.MessageId);
+            }
+        }
+        else
+        {
+            logger.LogWarning(
+                "Транспорт {Transport} без нативной задержки и без UseScheduling: " +
+                "бэкофф {Delay} для {MessageId} отброшен, немедленный requeue " +
+                "(включите scheduling для единой отложенной доставки)",
+                subscription.Transport.Name, delay, message.Envelope.MessageId);
+        }
+
+        if (accepted)
+        {
+            await message.AcknowledgeAsync(ct).ConfigureAwait(false);
+            return;
+        }
 
         await subscription.Transport
             .SendAsync(delayed, source, ct)

@@ -17,7 +17,7 @@ namespace AvtoBus.Nats;
 /// — Reject(requeue) = NakAsync → JetStream пере-доставит с инкрементом NumDelivered.
 /// — Reject(без requeue) = AckTerminate → сообщение выпадает из доставки.
 /// </summary>
-public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposable
+public sealed class NatsTransport : ITransport, IConsumerLagProvider, Runtime.IDelayedRetryMapper, IDisposable
 {
     private readonly NatsOptions _options;
     private readonly NatsConnection _connection;
@@ -54,6 +54,19 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
     }
 
     public string Name => TransportNames.Nats;
+
+    /// <summary>
+    /// Отложенный ретрай — в исходную подписку: сабджекты не зависят от Kind,
+    /// а синтетический <c>Source</c> (<c>Queue("{dest}:{group}")</c>) не читает
+    /// никто — ретрай туда завис бы навсегда (04 §1.1). Топики при этом дают
+    /// fan-out копию всем группам: включайте inbox-дедуп.
+    /// </summary>
+    public static TransportDestination MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription) => subscription.Destination;
+
+    TransportDestination Runtime.IDelayedRetryMapper.MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription)
+        => MapRetryDestination(source, subscription);
 
     /// <summary>Оценка лага группы (из ConsumerInfo.NumPending) — для метрики consumer.lag.</summary>
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;

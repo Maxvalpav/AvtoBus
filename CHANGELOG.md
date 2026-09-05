@@ -42,6 +42,17 @@
 
 ### Тесты и совместимость
 
+- Единая отложенная доставка (04 §1.1): `DeferAsync` и ретрай с бэкоффом теперь
+  одинаково работают на Kafka/NATS/Redis — через фолбэк в `IScheduleStore`
+  (нужен `UseScheduling`). Новое: `ISupportsDelayedDelivery` (нативно:
+  InMemory/Local/RabbitMQ/SQL/ASB), `IDelayedRetryMapper` (Kafka/Redis — в тот же
+  топик/стрим, NATS — в исходную подписку, т.к. синтетический Source не читается),
+  `IDelayedDeliveryFallback` + `DelayedDeliveryFallback` на schedule-сторе.
+  `ConsumerRunner` без стора громко отбрасывает задержку (warning) с немедленным
+  requeue — раньше терялась молча (горячий ретрай-цикл вместо бэкоффа).
+  NATS-топики дают fan-out копию всем группам — включайте inbox-дедуп.
+  Покрыто `DelayedDeliveryTests` (12 тестов, без брокеров).
+
 - Inbox без БД (04 §1.2): `IInboxStore` в Core + `InMemoryInboxStore`
   (bounded-память поверх `InboxDeduplication`) + `RedisInboxStore` (`SET NX EX`,
   ключ `avtobus:inbox:{consumer}:{messageId:N}`, отказ Redis — fail-open).

@@ -19,7 +19,7 @@ namespace AvtoBus.RabbitMq;
 ///   счётчик попыток, не завися от версии брокера); после <c>DeliveryLimit</c> попыток — в DLQ.
 ///   Reject(без requeue) = BasicNack(requeue: false) → в DLQ (если включён).
 /// </summary>
-public sealed class RabbitMqTransport : ITransport, AvtoBus.Observability.IQueueDepthProvider, AvtoBus.Observability.IConsumerLagProvider, IDisposable
+public sealed class RabbitMqTransport : ITransport, Runtime.ISupportsDelayedDelivery, AvtoBus.Observability.IQueueDepthProvider, AvtoBus.Observability.IConsumerLagProvider, IDisposable
 {
     private readonly RabbitMqOptions _options;
     private readonly IConnection _connection;

@@ -16,7 +16,7 @@ namespace AvtoBus.Redis;
 /// — XAUTOCLAIM: pending-сообщения, которые консьюмер не подтвердил дольше MinIdleTimeMs,
 ///   переподхватываются любым живым консьюмером группы (идея 65: переживание упавших воркеров).
 /// </summary>
-public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposable
+public sealed class RedisTransport : ITransport, IConsumerLagProvider, Runtime.IDelayedRetryMapper, IDisposable
 {
     private readonly RedisOptions _options;
     private readonly ConnectionMultiplexer _redis;
@@ -50,6 +50,17 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     }
 
     public string Name => TransportNames.Redis;
+
+    /// <summary>
+    /// Отложенный ретрай — в тот же стрим: <c>Source</c> уже <c>Queue(стрим)</c>,
+    /// группа XREADGROUP его читает (04 §1.1).
+    /// </summary>
+    public static TransportDestination MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription) => source;
+
+    TransportDestination Runtime.IDelayedRetryMapper.MapRetryDestination(
+        TransportDestination source, TransportSubscription subscription)
+        => MapRetryDestination(source, subscription);
 
     public IReadOnlyDictionary<string, long> ConsumerLags => _consumerLags;
 
