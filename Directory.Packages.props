@@ -37,7 +37,7 @@
     <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
-    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
     <!-- E-05: implicit-пакет SDK пиним явно, чтобы lock-файлы не трескались на новом SDK.
          Версия = та, что привозит SDK 10.0.302 (см. project.assets.json после restore). -->
