@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AvtoBus.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <PackageId>AvtoBus.Redis</PackageId>
     <Description>Redis Streams transport for AvtoBus: consumer groups, XAUTOCLAIM reclaim of stuck messages (idea 65).</Description>
@@ -11,6 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
 </Project>

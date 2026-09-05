@@ -73,6 +73,33 @@ public sealed partial class BusConfigurator
         return this;
     }
 
+    /// <summary>
+    /// Внешний стор inbox-дедупликации (04 §1.2): Redis/in-memory без реляционной БД.
+    /// Приоритет над <see cref="UseInboxDeduplication"/> — одновременно работает один.
+    /// Транзакционный EF-inbox (<c>InboxDedupMiddleware</c>) не затрагивается.
+    /// </summary>
+    public BusConfigurator UseInboxStore(AvtoBus.Runtime.IInboxStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        Services.AddSingleton(store);
+        return this;
+    }
+
+    /// <summary>
+    /// In-memory стор дедупликации на окне (монолит без БД): обёртка над
+    /// bounded-структурой с evict-oldest, часы — из DI (<c>TimeProvider</c>).
+    /// </summary>
+    public BusConfigurator UseInMemoryInbox(TimeSpan window)
+    {
+        if (window < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(window), window, "Окно дедупликации не может быть отрицательным.");
+        Services.AddSingleton(sp => new AvtoBus.Runtime.InMemoryInboxStore(
+            window, sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        Services.AddSingleton<AvtoBus.Runtime.IInboxStore>(sp =>
+            sp.GetRequiredService<AvtoBus.Runtime.InMemoryInboxStore>());
+        return this;
+    }
+
     /// <summary>Размыкает цепь консьюмера после N ошибок подряд (идея 163).</summary>
     public BusConfigurator UseCircuitBreaker(int threshold, TimeSpan? duration = null)
     {

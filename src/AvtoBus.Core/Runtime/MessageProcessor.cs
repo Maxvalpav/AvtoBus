@@ -29,6 +29,13 @@ public sealed class MessageProcessor(
         ? new InboxDeduplication(window, time)
         : null;
 
+    /// <summary>
+    /// Внешний стор дедупликации из DI (04 §1.2: Redis/in-memory без реляционной БД).
+    /// Приоритет над <see cref="InboxDeduplication"/> из опций: одновременно работает
+    /// только один, иначе повтор помечался бы дважды с разными окнами.
+    /// </summary>
+    private readonly IInboxStore? _store = rootServices.GetService<IInboxStore>();
+
     private readonly RetryBudget _retryBudget = new(
         options.Recoverability.RetryBudget,
         window: TimeSpan.FromSeconds(10),
@@ -126,7 +133,16 @@ public sealed class MessageProcessor(
 
         // 3. Дедупликация: повторную доставку одного и того же MessageId не обрабатываем дважды.
         var consumerKey = source.Name;
-        if (_inbox is not null && !_inbox.TryMarkProcessed(envelope.MessageId, consumerKey))
+        if (_store is not null)
+        {
+            if (!await _store.TryMarkProcessedAsync(envelope.MessageId, consumerKey, ct).ConfigureAwait(false))
+            {
+                BusTelemetry.RecordDecision(Activity.Current, "duplicate-skipped", consumerKey);
+                logger.LogDebug("Дубликат {MessageId} на {Consumer} — пропущен (IInboxStore)", envelope.MessageId, consumerKey);
+                return ProcessingDecision.Ack;
+            }
+        }
+        else if (_inbox is not null && !_inbox.TryMarkProcessed(envelope.MessageId, consumerKey))
         {
             BusTelemetry.RecordDecision(Activity.Current, "duplicate-skipped", consumerKey);
             logger.LogDebug("Дубликат {MessageId} на {Consumer} — пропущен", envelope.MessageId, consumerKey);
@@ -140,13 +156,13 @@ public sealed class MessageProcessor(
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _inbox?.Forget(envelope.MessageId, consumerKey);
+            ForgetInbox(envelope.MessageId, consumerKey);
             BusTelemetry.RecordDecision(Activity.Current, "canceled", "host shutdown");
             return ProcessingDecision.Discard("canceled: host shutdown");
         }
         catch (Exception exception)
         {
-            _inbox?.Forget(envelope.MessageId, consumerKey);
+            ForgetInbox(envelope.MessageId, consumerKey);
 
             BusTelemetry.FailureRecorded(envelope, envelope.DeliveryAttempt, exception);
 
@@ -166,6 +182,15 @@ public sealed class MessageProcessor(
 
             return decision;
         }
+    }
+
+    /// <summary>Снимает inbox-отметку с активного механизма (стор или встроенный).</summary>
+    private void ForgetInbox(Guid messageId, string consumerKey)
+    {
+        if (_store is not null)
+            _store.Forget(messageId, consumerKey);
+        else
+            _inbox?.Forget(messageId, consumerKey);
     }
 
     /// <summary>Отдаёт сообщение, исчерпавшее все попытки, обработчику второй линии обороны.

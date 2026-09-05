@@ -828,6 +828,7 @@
         "type": "Project",
         "dependencies": {
           "AvtoBus.Core": "[1.0.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.4, )",
           "StackExchange.Redis": "[2.8.16, )"
         }
       },

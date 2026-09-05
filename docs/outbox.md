@@ -28,5 +28,15 @@ bus.UseOutbox<AppDbContext>(); // + UseProductionDefaults<AppDbContext>() для
 
 ## Без реляционной БД
 
-Сегодня inbox/outbox требуют EF Core. Хранилища на Redis / in-memory —
-в дорожной карте (аудит 04 §1.2).
+Транзакционный inbox/outbox требует EF Core. Дедуп без БД — через `IInboxStore`:
+
+```csharp
+bus.UseInMemoryInbox(TimeSpan.FromHours(1)); // монолит: bounded-память, evict-oldest
+bus.UseRedisInbox(o => { o.Configuration = "localhost:6379"; o.Window = TimeSpan.FromHours(24); }); // мульти-инстанс: SET NX EX
+bus.UseInboxStore(myStore); // свой стор
+```
+
+Правила: стор из DI приоритетнее `UseInboxDeduplication` (работает один);
+транзакционный EF-inbox не затрагивается и остаётся единственным путём
+«бизнес + inbox в одном коммите». Отказ Redis — fail-open (at-least-once,
+хендлеры обязаны быть идемпотентными), ключ `avtobus:inbox:{consumer}:{messageId:N}`.

@@ -42,6 +42,13 @@
 
 ### Тесты и совместимость
 
+- Inbox без БД (04 §1.2): `IInboxStore` в Core + `InMemoryInboxStore`
+  (bounded-память поверх `InboxDeduplication`) + `RedisInboxStore` (`SET NX EX`,
+  ключ `avtobus:inbox:{consumer}:{messageId:N}`, отказ Redis — fail-open).
+  `MessageProcessor` берёт стор из DI с приоритетом над `UseInboxDeduplication`;
+  EF-inbox не тронут. API: `UseInboxStore` / `UseInMemoryInbox` / `UseRedisInbox`.
+  Покрыто `InboxStoreTests` (7 тестов + Redis-лайв со скипом без `AVTOBUS_REDIS_URL`).
+
 - Провайдеры секретов (03 §3.1, `AvtoBus.Security`): `ISecretProvider` +
   `Configuration` / `Environment` (префикс `AVTOBUS_`) / `File` (`/run/secrets/…`,
   трим переноса, защита от `../`) / `Composite` (первый непустой).
