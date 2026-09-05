@@ -25,12 +25,14 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     private readonly NpgsqlDataSource _dataSource;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _ensuredTopicTables = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
     private long _lastLagCheckTicks;
     private int _disposed;
 
-    public SqlTransport(SqlOptions options)
+    public SqlTransport(SqlOptions options, TimeProvider? time = null)
     {
         _options = options;
+        _time = time ?? TimeProvider.System;
         // Fail-fast вместо тихого stall/спина/дублей: BatchSize<=0 вечно ничего не читает,
         // ListenTimeout<=0 крутит цикл без сна (100% CPU), ReclaimTimeout<=0 отдаёт
         // свежезаклеймленные другим консьюмерам.
@@ -55,6 +57,8 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
     {
         var (table, channel) = TableNames(destination);
         var blob = SqlEnvelopeSerializer.ToBlob(envelope);
+        // Реальное время: visible_at сравнивается с NOW() БД — фейковое время
+        // поплыло бы относительно часов базы.
         var visibleAt = envelope.DeliverAt?.UtcDateTime ?? DateTime.UtcNow;
 
         await using var connection = await OpenAsync(ct).ConfigureAwait(false);
@@ -125,8 +129,8 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
                 }
                 catch (NpgsqlException)
                 {
-                    // Разрыв соединения — переподключаемся следующим циклом.
-                    await Task.Delay(200, ct).ConfigureAwait(false);
+                    // Пауза перед переподключением — через TimeProvider (фейковое время в тестах).
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -187,7 +191,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
                 }
                 catch (Exception) when (!ct.IsCancellationRequested)
                 {
-                    await Task.Delay(200, ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
                 }
             }
         }
@@ -202,6 +206,8 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
         // Идея 66: FOR UPDATE SKIP LOCKED — конкурирующие читатели не ждут друг друга.
         // Зависшие (claim старше ReclaimTimeout) возвращаются в доставку.
+        // Часы БД авторитетны (claimed_at пишет NOW()): берём реальное время, а не
+        // TimeProvider — иначе фейковое время тестов разойдётся с временем БД.
         var reclaim = DateTime.UtcNow - _options.ReclaimTimeout;
         await using var select = new NpgsqlCommand(
             $"""
@@ -332,9 +338,10 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
 
     private void TrackLag(string table, CancellationToken ct)
     {
-        var nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+        // Локальный троттлинг — через TimeProvider; сам подсчёт идёт часами БД (см. выше).
+        var nowTicks = _time.GetUtcNow().UtcTicks;
         var lastTicks = Interlocked.Read(ref _lastLagCheckTicks);
-        if (lastTicks != 0 && new DateTimeOffset(lastTicks, TimeSpan.Zero) + TimeSpan.FromSeconds(5) > DateTimeOffset.UtcNow)
+        if (lastTicks != 0 && new DateTimeOffset(lastTicks, TimeSpan.Zero) + TimeSpan.FromSeconds(5) > _time.GetUtcNow())
             return;
         Interlocked.Exchange(ref _lastLagCheckTicks, nowTicks);
 
@@ -342,6 +349,7 @@ public sealed class SqlTransport : ITransport, IConsumerLagProvider, IDisposable
         {
             try
             {
+                // Реальное время: сравнивается с claimed_at, который пишет NOW() БД.
                 var reclaim = DateTime.UtcNow - _options.ReclaimTimeout;
                 await using var connection = await OpenAsync(CancellationToken.None).ConfigureAwait(false);
                 await using var count = new NpgsqlCommand(

@@ -10,12 +10,14 @@ public sealed class TransportBridge : BackgroundService
     private readonly AvtoBus.Runtime.TransportRegistry _registry;
     private readonly ILogger<TransportBridge> _log;
     private readonly BridgeOptions _options;
+    private readonly TimeProvider _time;
 
-    public TransportBridge(AvtoBus.Runtime.TransportRegistry registry, ILogger<TransportBridge> log, BridgeOptions options)
+    public TransportBridge(AvtoBus.Runtime.TransportRegistry registry, ILogger<TransportBridge> log, BridgeOptions options, TimeProvider? time = null)
     {
         _registry = registry;
         _log = log;
         _options = options;
+        _time = time ?? TimeProvider.System;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -40,7 +42,7 @@ public sealed class TransportBridge : BackgroundService
             catch (Exception ex)
             {
                 _log.LogError(ex, "[Bridge] loop failed for {Source}->{Dest}, restarting in 5s", rule.SourceTransport, rule.DestinationTransport);
-                try { await Task.Delay(TimeSpan.FromSeconds(5), ct); } catch (OperationCanceledException) { break; }
+                try { await Task.Delay(TimeSpan.FromSeconds(5), _time, ct); } catch (OperationCanceledException) { break; }
             }
         }
     }
@@ -77,7 +79,7 @@ public sealed class TransportBridge : BackgroundService
                 }
                 else
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, Math.Min(msg.Envelope.DeliveryAttempt, 5))), ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, Math.Min(msg.Envelope.DeliveryAttempt, 5))), _time, ct).ConfigureAwait(false);
                     await msg.RejectAsync(true, ct);
                 }
             }

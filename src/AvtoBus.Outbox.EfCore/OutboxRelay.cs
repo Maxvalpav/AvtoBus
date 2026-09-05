@@ -80,7 +80,7 @@ public sealed class OutboxRelay : BackgroundService,
                 // Раньше любое исключение убивало BackgroundService навсегда (silent stall outbox).
                 // Логируем и повторяем через интервал вместо смерти relay.
                 _log.LogError(ex, "Outbox pump failed, retrying");
-                try { await Task.Delay(_opt.PollInterval, stopping).ConfigureAwait(false); }
+                try { await Task.Delay(_opt.PollInterval, _time, stopping).ConfigureAwait(false); }
                 catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
                 continue;
             }
@@ -112,7 +112,7 @@ public sealed class OutboxRelay : BackgroundService,
                 catch (Exception ex)
                 {
                     _log.LogDebug(ex, "Outbox signal wait failed");
-                    try { await Task.Delay(_opt.PollInterval, stopping).ConfigureAwait(false); }
+                    try { await Task.Delay(_opt.PollInterval, _time, stopping).ConfigureAwait(false); }
                     catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
                 }
             }

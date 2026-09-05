@@ -59,7 +59,7 @@ public sealed class SchedulerService : BackgroundService
 
                 if (due.Count == 0)
                 {
-                    await Task.Delay(_options.PollInterval, ct).ConfigureAwait(false);
+                    await Task.Delay(_options.PollInterval, _clock, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -91,7 +91,7 @@ public sealed class SchedulerService : BackgroundService
             catch (Exception ex)
             {
                 _log.LogError(ex, "Scheduler delayed-loop error");
-                try { await Task.Delay(_options.ErrorDelay, ct).ConfigureAwait(false); }
+                try { await Task.Delay(_options.ErrorDelay, _clock, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
         }
@@ -107,7 +107,7 @@ public sealed class SchedulerService : BackgroundService
             {
                 if (!await _leader.TryAcquireAsync("avtobus-cron", _options.LeaderLease, ct).ConfigureAwait(false))
                 {
-                    await Task.Delay(_options.LeaderRetryInterval, ct).ConfigureAwait(false);
+                    await Task.Delay(_options.LeaderRetryInterval, _clock, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -116,14 +116,14 @@ public sealed class SchedulerService : BackgroundService
                 while (!ct.IsCancellationRequested && await _leader.RenewAsync("avtobus-cron", _options.LeaderLease, ct).ConfigureAwait(false))
                 {
                     await FireDueCronAsync(ct).ConfigureAwait(false);
-                    await Task.Delay(_options.CronPollInterval, ct).ConfigureAwait(false);
+                    await Task.Delay(_options.CronPollInterval, _clock, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Scheduler cron-loop error");
-                try { await Task.Delay(_options.ErrorDelay, ct).ConfigureAwait(false); }
+                try { await Task.Delay(_options.ErrorDelay, _clock, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
         }

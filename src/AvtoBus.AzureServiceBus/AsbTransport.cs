@@ -24,11 +24,13 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
     private readonly ServiceBusAdministrationClient _admin;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _provisioned = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
     private int _disposed;
 
-    public AsbTransport(AsbOptions options)
+    public AsbTransport(AsbOptions options, TimeProvider? time = null)
     {
         _options = options;
+        _time = time ?? TimeProvider.System;
 
         var clientOptions = new ServiceBusClientOptions
         {
@@ -163,7 +165,7 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
     private long _lastLagCheckTicks;
     private void TrackLag(string path)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _time.GetUtcNow();
         if (Interlocked.Read(ref _lastLagCheckTicks) != 0)
         {
             var last = new DateTimeOffset(Interlocked.Read(ref _lastLagCheckTicks), TimeSpan.Zero);
@@ -307,6 +309,8 @@ public sealed class AsbTransport : ITransport, IConsumerLagProvider, IDisposable
             {
                 while (!ct.IsCancellationRequested)
                 {
+                    // Реальное время намеренно: интервал продления привязан к брокерному
+                    // lock-duration ServiceBus, фейковые часы тестов его бы сломали.
                     await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
                     await _receiver.RenewMessageLockAsync(_received, ct).ConfigureAwait(false);
                 }

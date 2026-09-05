@@ -20,6 +20,7 @@ public sealed class SagaScenario<TSaga, TState>
     private readonly List<(Type Type, Delegate Predicate)> _sent = [];
     private readonly List<(Func<TState, bool> Predicate, string Name)> _state = [];
     private TimeSpan _timeout = TimeSpan.FromSeconds(5);
+    private TimeProvider _time = TimeProvider.System;
 
     public static SagaScenario<TSaga, TState> Start() => new();
 
@@ -54,6 +55,16 @@ public sealed class SagaScenario<TSaga, TState>
     public SagaScenario<TSaga, TState> WithTimeout(TimeSpan timeout)
     {
         _timeout = timeout;
+        return this;
+    }
+
+    /// <summary>
+    /// Часы сценария (для детерминированных тестов — подставь FakeTimeProvider
+    /// и двигай время вручную вместо реального ожидания).
+    /// </summary>
+    public SagaScenario<TSaga, TState> WithTime(TimeProvider time)
+    {
+        _time = time ?? TimeProvider.System;
         return this;
     }
 
@@ -115,13 +126,16 @@ public sealed class SagaScenario<TSaga, TState>
     /// <summary>Асинхронный поллинг условия с таймаутом.</summary>
     private async Task WaitAsync(Func<Task<bool>> condition)
     {
-        var deadline = DateTime.UtcNow + _timeout;
-        while (DateTime.UtcNow < deadline)
+        // Дедлайн — по часам сценария (фейковое время в детерминированных тестах);
+        // шаг опроса — всегда реальный: это гранулярность, а не логика времени.
+        // С FakeTimeProvider двигай время вручную, иначе никогда-true условие зависнет.
+        var deadline = _time.GetUtcNow() + _timeout;
+        while (_time.GetUtcNow() < deadline)
         {
             if (await condition())
                 return;
 
-            await Task.Delay(25);
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
         }
 
         throw new TimeoutException($"Сценарий не завершился за {_timeout}.");

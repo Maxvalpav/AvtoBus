@@ -84,12 +84,14 @@ public sealed class AvtoBusTestHarness : IAsyncDisposable
     {
         var consumerHost = host.Services.GetRequiredService<ConsumerHost>();
 
-        // Подписки регистрируются в ExecuteAsync; ждём, пока ранеры появятся.
+        // Ждём поднятия ранеров в ExecuteAsync; таймаут — реальный, это стартовый барьер тестов.
+        // Намеренно НЕ через TimeProvider: при FakeTimeProvider стартовые опросы обязаны
+        // тикать реальным временем, иначе подъём зависнет без ручного Advance.
         for (var i = 0; i < 200 && consumerHost.Runners.Count == 0; i++)
-            await Task.Delay(5, ct).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(5), ct).ConfigureAwait(false);
 
-        // Ранеры созданы, но подписка на канал происходит при первом MoveNext итератора.
-        await Task.Delay(50, ct).ConfigureAwait(false);
+        // Раннеры созданы, но подписка ещё может не дойти до первого MoveNext чтения.
+        await Task.Delay(TimeSpan.FromMilliseconds(50), ct).ConfigureAwait(false);
     }
 
     /// <summary>

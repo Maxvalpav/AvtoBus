@@ -293,7 +293,8 @@ public static class ServiceCollectionExtensions
     private static System.Collections.Generic.IEnumerable<System.Diagnostics.Metrics.Measurement<double>> CollectOutboxOldestAge(
         IServiceProvider provider)
     {
-        var now = DateTime.UtcNow;
+        // Время — из DI (фейковое в тестах): возраст считается в тех же часах, что и SentAt.
+        var now = (provider.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow();
         foreach (var outbox in provider.GetServices<IOutboxHealthProvider>())
         {
             if (outbox.OldestPendingAt is { } oldest)

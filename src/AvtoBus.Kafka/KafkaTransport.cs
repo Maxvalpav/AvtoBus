@@ -27,12 +27,14 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
     private readonly IAdminClient _admin;
     private readonly SemaphoreSlim _producerGate = new(1, 1);
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
     private bool _transactionInitialized;
     private int _disposed;
 
-    public KafkaTransport(KafkaOptions options)
+    public KafkaTransport(KafkaOptions options, TimeProvider? time = null)
     {
         _options = options;
+        _time = time ?? TimeProvider.System;
 
         var producerConfig = new ProducerConfig
         {
@@ -145,7 +147,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                     result = consumer.Consume(TimeSpan.FromMilliseconds(100));
                     if (result is null)
                     {
-                        await Task.Delay(10, ct).ConfigureAwait(false);
+                        await Task.Delay(TimeSpan.FromMilliseconds(10), _time, ct).ConfigureAwait(false);
                         continue;
                     }
                 }
@@ -155,7 +157,7 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                 }
                 catch (ConsumeException)
                 {
-                    try { await Task.Delay(500, ct).ConfigureAwait(false); } catch (OperationCanceledException) { yield break; }
+                    try { await Task.Delay(TimeSpan.FromMilliseconds(500), _time, ct).ConfigureAwait(false); } catch (OperationCanceledException) { yield break; }
                     continue;
                 }
 
@@ -174,10 +176,10 @@ public sealed class KafkaTransport : ITransport, IConsumerLagProvider, IDisposab
                     continue;
                 }
 
-                if (DateTimeOffset.UtcNow - lastLagCheck > TimeSpan.FromSeconds(5))
+                if (_time.GetUtcNow() - lastLagCheck > TimeSpan.FromSeconds(5))
                 {
                     TrackLag(consumer, result, group);
-                    lastLagCheck = DateTimeOffset.UtcNow;
+                    lastLagCheck = _time.GetUtcNow();
                 }
 
                 var message = new KafkaMessage(this, consumer, result, envelope, () => System.Threading.Interlocked.Decrement(ref outstanding));

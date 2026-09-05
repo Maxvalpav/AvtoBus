@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using AvtoBus.Pipeline;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AvtoBus.Testing;
 
@@ -66,7 +67,8 @@ public sealed class RecordingMiddleware(BusRecorder recorder, FaultInjector faul
     {
         if (faults.DelayOf(context.Message.GetType()) is { } delay && delay > TimeSpan.Zero)
         {
-            await Task.Delay(delay, context.CancellationToken).ConfigureAwait(false);
+            var clock = context.Services.GetService<TimeProvider>() ?? TimeProvider.System;
+            await Task.Delay(delay, clock, context.CancellationToken).ConfigureAwait(false);
             faults.ClearDelay(context.Message.GetType());
         }
 

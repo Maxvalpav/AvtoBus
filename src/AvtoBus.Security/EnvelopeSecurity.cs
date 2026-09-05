@@ -19,9 +19,9 @@ public sealed class EnvelopeSecurity : IEnvelopeSecurity
     public EnvelopeSecurity(SecurityOptions options, TimeProvider? time = null)
     {
         _options = options;
-        _keys = new KeyRing(options);
-        _outbound = new RateLimiter(options.OutboundRatePerSecond);
         _time = time ?? TimeProvider.System;
+        _keys = new KeyRing(options, _time);
+        _outbound = new RateLimiter(options.OutboundRatePerSecond);
         IsEnabled = options.RequireSignature || options.EncryptBody || options.OutboundRatePerSecond > 0;
     }
 
@@ -233,6 +233,8 @@ internal sealed class RateLimiter(int permitsPerSecond)
         var ms = Reserve();
         if (ms <= 0) return;
         var jitter = Random.Shared.Next(0, 30);
+        // Реальное время намеренно: Reserve считает окно по Environment.TickCount64,
+        // фейковые часы здесь дали бы рассинхрон квоты и ожидания.
         await Task.Delay((int)ms + jitter, ct).ConfigureAwait(false);
     }
 

@@ -15,7 +15,7 @@ public static class AsbBusExtensions
         var options = new AsbOptions();
         configure(options);
 
-        bus.Services.AddSingleton(sp => new AsbTransport(options));
+        bus.Services.AddSingleton(sp => new AsbTransport(options, sp.GetService<TimeProvider>()));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<AsbTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<AsbTransport>());

@@ -32,12 +32,16 @@
     <ProjectReference Include="..\..\src\AvtoBus.Mongo\AvtoBus.Mongo.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Actors\AvtoBus.Actors.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Canvas\AvtoBus.Canvas.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Serialization.MessagePack\AvtoBus.Serialization.MessagePack.csproj" />
+    <ProjectReference Include="..\..\src\AvtoBus.Serialization.Protobuf\AvtoBus.Serialization.Protobuf.csproj" />
     <ProjectReference Include="..\..\src\AvtoBus.Abstractions\AvtoBus.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />
+    <PackageReference Include="FsCheck" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />

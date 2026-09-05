@@ -72,7 +72,8 @@ public sealed class MongoOutboxRelay : Microsoft.Extensions.Hosting.BackgroundSe
     private readonly IMongoOutboxStore _store;
     private readonly MongoOutboxOptions _opts;
     private readonly IServiceProvider _sp;
-    public MongoOutboxRelay(IMongoOutboxStore store, MongoOutboxOptions opts, IServiceProvider sp) { _store = store; _opts = opts; _sp = sp; }
+    private readonly TimeProvider _time;
+    public MongoOutboxRelay(IMongoOutboxStore store, MongoOutboxOptions opts, IServiceProvider sp, TimeProvider? time = null) { _store = store; _opts = opts; _sp = sp; _time = time ?? TimeProvider.System; }
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -87,7 +88,7 @@ public sealed class MongoOutboxRelay : Microsoft.Extensions.Hosting.BackgroundSe
             }
             catch (OperationCanceledException) { break; }
             catch { }
-            await Task.Delay(_opts.RelayInterval, ct);
+            await Task.Delay(_opts.RelayInterval, _time, ct);
         }
     }
 }

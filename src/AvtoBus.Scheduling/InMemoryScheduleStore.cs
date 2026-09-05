@@ -7,6 +7,12 @@ namespace AvtoBus.Scheduling;
 public sealed class InMemoryScheduleStore : IScheduleStore
 {
     private readonly object _gate = new();
+    private readonly TimeProvider _time;
+
+    public InMemoryScheduleStore(TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
+    }
 
     private readonly List<ScheduledMessage> _scheduled = new();
     private readonly Dictionary<string, CronSchedule> _cron = new(StringComparer.Ordinal);
@@ -38,7 +44,7 @@ public sealed class InMemoryScheduleStore : IScheduleStore
         lock (_gate)
         {
             foreach (var m in _scheduled.Where(s => s.Token == token && s.DeliveredAt is null))
-                m.CancelledAt = DateTime.UtcNow;
+                m.CancelledAt = _time.GetUtcNow().UtcDateTime;
         }
         return ValueTask.CompletedTask;
     }
@@ -60,7 +66,7 @@ public sealed class InMemoryScheduleStore : IScheduleStore
 
     public ValueTask MarkDeliveredAsync(IReadOnlyList<long> ids, CancellationToken ct = default)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         lock (_gate)
         {
             foreach (var m in _scheduled.Where(s => ids.Contains(s.Id) && s.DeliveredAt is null))

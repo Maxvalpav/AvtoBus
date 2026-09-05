@@ -41,6 +41,7 @@ public sealed partial class JsonEnvelopeSerializer : IEnvelopeSerializer
             TimeToLive = env.TimeToLive,
             PartitionKey = env.PartitionKey,
             TenantId = env.TenantId,
+            Priority = env.Priority,
             ReplyTo = env.ReplyTo,
             DeliveryAttempt = env.DeliveryAttempt,
             TraceParent = env.TraceParent,
@@ -68,6 +69,7 @@ public sealed partial class JsonEnvelopeSerializer : IEnvelopeSerializer
             TimeToLive = dto.TimeToLive,
             PartitionKey = dto.PartitionKey,
             TenantId = dto.TenantId,
+            Priority = dto.Priority,
             ReplyTo = dto.ReplyTo,
             DeliveryAttempt = dto.DeliveryAttempt,
             TraceParent = dto.TraceParent,
@@ -88,6 +90,7 @@ public sealed partial class JsonEnvelopeSerializer : IEnvelopeSerializer
         public TimeSpan? TimeToLive { get; set; }
         public string? PartitionKey { get; set; }
         public string? TenantId { get; set; }
+        public int Priority { get; set; }
         public string? ReplyTo { get; set; }
         public int DeliveryAttempt { get; set; } = 1;
         public string? TraceParent { get; set; }

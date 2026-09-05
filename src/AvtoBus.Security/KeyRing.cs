@@ -23,12 +23,12 @@ public sealed class KeyRing
     /// </summary>
     private volatile RotationStateBox _currentBox;
 
-    public KeyRing(SecurityOptions options)
+    public KeyRing(SecurityOptions options, TimeProvider? time = null)
     {
         _options = options;
         _keepPrevious = Math.Max(0, options.KeepPreviousKeyGenerations);
 
-        var initialEpoch = EpochOf(DateTimeOffset.UtcNow, options.KeyRotationInterval);
+        var initialEpoch = EpochOf((time ?? TimeProvider.System).GetUtcNow(), options.KeyRotationInterval);
         var initial = _options.Keys.SigningKey.Length > 0
             ? _options.Keys
             : Derive(options, initialEpoch);

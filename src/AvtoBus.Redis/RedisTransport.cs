@@ -23,27 +23,30 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     private readonly IDatabase _db;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _claimCursors = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
     private int _disposed;
 
     // Sync ctor kept for backward compat; async factory available via CreateAsync
-    public RedisTransport(RedisOptions options)
+    public RedisTransport(RedisOptions options, TimeProvider? time = null)
     {
         _options = options;
         _redis = ConnectionMultiplexer.Connect(options.Configuration);
         _db = _redis.GetDatabase();
+        _time = time ?? TimeProvider.System;
     }
 
-    public static async Task<RedisTransport> CreateAsync(RedisOptions options, CancellationToken ct = default)
+    public static async Task<RedisTransport> CreateAsync(RedisOptions options, CancellationToken ct = default, TimeProvider? time = null)
     {
         var redis = await ConnectionMultiplexer.ConnectAsync(options.Configuration).ConfigureAwait(false);
-        return new RedisTransport(redis, options);
+        return new RedisTransport(redis, options, time);
     }
 
-    private RedisTransport(ConnectionMultiplexer redis, RedisOptions options)
+    private RedisTransport(ConnectionMultiplexer redis, RedisOptions options, TimeProvider? time = null)
     {
         _options = options;
         _redis = redis;
         _db = _redis.GetDatabase();
+        _time = time ?? TimeProvider.System;
     }
 
     public string Name => TransportNames.Redis;
@@ -110,20 +113,20 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
             }
             catch (RedisTimeoutException)
             {
-                await Task.Delay(200, ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
                 continue;
             }
             catch (RedisException ex) when (ex.Message.Contains("NOGROUP", StringComparison.Ordinal))
             {
                 try { await _db.StreamCreateConsumerGroupAsync(stream, group, position: 0, createStream: true).ConfigureAwait(false); }
                 catch { }
-                await Task.Delay(200, ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMilliseconds(200), _time, ct).ConfigureAwait(false);
                 continue;
             }
 
             if (batch.Length == 0)
             {
-                await Task.Delay(100, ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMilliseconds(100), _time, ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -142,7 +145,7 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
         string stream, string group, string consumerName, CancellationToken ct)
     {
         var reclaimKey = $"{stream}:{group}";
-        var now = DateTimeOffset.UtcNow;
+        var now = _time.GetUtcNow();
         if (_lastReclaimAt.TryGetValue(reclaimKey, out var last) && now - last < TimeSpan.FromMilliseconds(_options.MinIdleTimeMs / 2))
             return Array.Empty<StreamEntry>();
         _lastReclaimAt[reclaimKey] = now;
@@ -195,7 +198,7 @@ public sealed class RedisTransport : ITransport, IConsumerLagProvider, IDisposab
     private long _lastLagCheckTicks;
     private void TrackLagAsync(string stream)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _time.GetUtcNow();
         if (Interlocked.Read(ref _lastLagCheckTicks) != 0)
         {
             var last = new DateTimeOffset(Interlocked.Read(ref _lastLagCheckTicks), TimeSpan.Zero);

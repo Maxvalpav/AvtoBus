@@ -14,7 +14,7 @@ public static class RedisBusExtensions
         var options = new RedisOptions();
         configure(options);
 
-        bus.Services.AddSingleton(sp => new RedisTransport(options));
+        bus.Services.AddSingleton(sp => new RedisTransport(options, sp.GetService<TimeProvider>()));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<RedisTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<RedisTransport>());

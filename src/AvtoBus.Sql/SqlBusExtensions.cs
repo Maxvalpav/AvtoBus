@@ -14,7 +14,7 @@ public static class SqlBusExtensions
         var options = new SqlOptions();
         configure(options);
 
-        bus.Services.AddSingleton(sp => new SqlTransport(options));
+        bus.Services.AddSingleton(sp => new SqlTransport(options, sp.GetService<TimeProvider>()));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<SqlTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<SqlTransport>());

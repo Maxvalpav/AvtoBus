@@ -11,12 +11,14 @@ public sealed class OutboxCleanup : BackgroundService
     private readonly IServiceScopeFactory _scopes;
     private readonly OutboxOptions _opt;
     private readonly ILogger<OutboxCleanup> _log;
+    private readonly TimeProvider _time;
 
-    public OutboxCleanup(IServiceScopeFactory scopes, OutboxOptions opt, ILogger<OutboxCleanup> log)
+    public OutboxCleanup(IServiceScopeFactory scopes, OutboxOptions opt, ILogger<OutboxCleanup> log, TimeProvider? time = null)
     {
         _scopes = scopes;
         _opt = opt;
         _log = log;
+        _time = time ?? TimeProvider.System;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -27,8 +29,7 @@ public sealed class OutboxCleanup : BackgroundService
             {
                 await using var scope = _scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<DbContext>();
-                var timeProvider = scope.ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
-                var cutoff = timeProvider.GetUtcNow().UtcDateTime - _opt.CleanupAfter;
+                var cutoff = _time.GetUtcNow().UtcDateTime - _opt.CleanupAfter;
 
                 await DeleteExpiredAsync(db, cutoff, _opt.MaxPoisonAttempts, stop).ConfigureAwait(false);
             }
@@ -50,7 +51,7 @@ public sealed class OutboxCleanup : BackgroundService
                 _log.LogWarning(ex, "OutboxCleanup: пропуск цикла чистки.");
             }
 
-            try { await Task.Delay(TimeSpan.FromMinutes(15), stop).ConfigureAwait(false); }
+            try { await Task.Delay(TimeSpan.FromMinutes(15), _time, stop).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
         }
     }

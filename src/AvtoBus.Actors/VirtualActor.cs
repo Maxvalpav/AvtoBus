@@ -35,6 +35,12 @@ public abstract class VirtualActor<TState> : IActor, IDisposable where TState : 
 {
     public required ActorId Id { get; init; }
     protected TState State { get; set; } = new();
+
+    /// <summary>
+    /// Часы актора (напоминания): по умолчанию системные; в тестах подставь
+    /// FakeTimeProvider и двигай время вручную — напоминания станут детерминированными.
+    /// </summary>
+    protected TimeProvider Clock { get; set; } = TimeProvider.System;
     private readonly List<(string name, TimeSpan due, TimeSpan period)> _reminders = [];
     private readonly SemaphoreSlim _mailbox = new(1, 1);
 
@@ -58,8 +64,8 @@ public abstract class VirtualActor<TState> : IActor, IDisposable where TState : 
     {
         try
         {
-            await Task.Delay(due, ct).ConfigureAwait(false);
-            while (!ct.IsCancellationRequested) { await OnReminderAsync(name, ct).ConfigureAwait(false); await Task.Delay(period, ct).ConfigureAwait(false); }
+            await Task.Delay(due, Clock, ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested) { await OnReminderAsync(name, ct).ConfigureAwait(false); await Task.Delay(period, Clock, ct).ConfigureAwait(false); }
         }
         catch (OperationCanceledException) { }
         catch (Exception)

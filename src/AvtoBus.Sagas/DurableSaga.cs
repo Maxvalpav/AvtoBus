@@ -121,10 +121,11 @@ public sealed class DurableSagaContext : ISagaContext
     private readonly SagaJournal _journal;
     private readonly IBus _bus;
     private readonly ConsumeContext? _consume;
+    private readonly TimeProvider _time;
     private int _cursor;
 
-    public DurableSagaContext(SagaJournal journal, IBus bus, ConsumeContext? consume = null)
-        => (_journal, _bus, _consume) = (journal, bus, consume);
+    public DurableSagaContext(SagaJournal journal, IBus bus, ConsumeContext? consume = null, TimeProvider? time = null)
+        => (_journal, _bus, _consume, _time) = (journal, bus, consume, time ?? TimeProvider.System);
 
     public IBus Bus => _bus;
 
@@ -143,7 +144,7 @@ public sealed class DurableSagaContext : ISagaContext
             return;
         }
 
-        await _bus.ScheduleAsync(timeoutMsg, DateTimeOffset.UtcNow + delay);
+        await _bus.ScheduleAsync(timeoutMsg, _time.GetUtcNow() + delay);
     }
 
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification =

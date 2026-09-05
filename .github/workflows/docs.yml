@@ -28,7 +28,7 @@ jobs:
           git status --porcelain=v1 --untracked-files=all -- docs/ | head -20
           for f in docs/index.md docs/guarantees.md docs/decision-guide.md docs/compatibility.md \
                    docs/getting-started.md docs/outbox.md docs/security.md docs/observability.md \
-                   docs/migration.md docs/faq.md; do
+                   docs/migration.md docs/faq.md docs/analyzers.md; do
             test -f "$f" || { echo "::error::missing public page $f"; exit 1; }
             git check-ignore -q "$f" && { echo "::error::$f is gitignored but expected public"; exit 1; }
           done

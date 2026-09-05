@@ -29,11 +29,47 @@
 ### Документация
 
 - Публичная документация заведна в git через allowlist в `.gitignore`
-  (10 страниц: `index`, `getting-started`, `decision-guide`, `guarantees`, `outbox`,
-  `security`, `observability`, `migration`, `compatibility`, `faq`);
+  (11 страниц: `index`, `getting-started`, `decision-guide`, `guarantees`, `outbox`,
+  `security`, `observability`, `migration`, `compatibility`, `faq`, `analyzers`);
   внутренние черновики остаются локальными.
 - Новый workflow `docs.yml`: проверка allowlist + битые ссылки в `docs/`
   (деплой на Pages — следующим шагом после включения Pages в настройках репо).
+- `docs/analyzers.md` (E-17): таблица всех реально существующих правил AVB
+  (источник — `src/AvtoBus.Analyzers/Rules.cs`); зарезервированные номера без
+  реализации не упоминаются.
+- `docs/compatibility.md`: golden-фикстуры помечены как готовые
+  (`tests/wire-fixtures/envelope-v1/v2/v3.json` + `WireCompatTests`).
+
+### Тесты и совместимость
+
+- Wire-compat (E-03): golden-фикстуры `envelope-v1/v2/v3.json` читаются текущим
+  кодом (`Supported_versions_open_cleanly`); v1 отклоняется при дефолтном
+  `MinimumSignatureVersion=2`, мутация тела/маршрута ломает подпись.
+- Property-based тесты (03 §2.2, FsCheck): round-trip `Envelope → bytes → Envelope`
+  для JSON-сериализатора outbox, `Protect/Open` подписи, мутация любого байта тела
+  ломает подпись; round-trip MessagePack/Protobuf контрактов.
+- Детерминированное время (03 §2.3, `Microsoft.Extensions.TimeProvider.Testing`):
+  `TimeProvider` инжектится в транспорты (Kafka/NATS/Redis/SQL/ASB), `OutboxRelay`,
+  `OutboxCleanup`, `SchedulerService`, `InMemoryScheduleStore`, саги (`DurableSaga`,
+  `SagaScenario.WithTime`), акторы (`VirtualActor.Clock`), `Bridge`, `StoreEventSubscription`,
+  `MongoOutboxRelay`, метрику `outbox.oldest_pending_age`, `RecordingMiddleware`.
+  Исключения осознанно оставлены на реальном времени там, где часы — чужие:
+  `visible_at`/`claimed_at` SQL (часы БД `NOW()`), lock-renew ServiceBus
+  (брокерный lock-duration), стартовый барьер харнесса, rate-limiter квоты.
+- Исправлена потеря `Priority` в `JsonEnvelopeSerializer` outbox (поле не
+  переживало relay round-trip); property-тест фиксирует инвариант.
+- `DeterministicTimeTests`: конфликт имён с локальным `AvtoBus.Tests.FakeTimeProvider`
+  (только часы, без таймеров) закрыт алиасом `MsFakeTimeProvider` — напоминания
+  акторов реально просыпаются от `Advance`.
+
+### Известные ограничения (не меняем в этом релизе)
+
+- Redis/SQL возят тело base64 (E-14): +33% объёма, но читаемость через `redis-cli`/`psql`
+  и строковые Stream-поля; бинарный формат — отдельным breaking в 0.3 с миграцией.
+- SQL-топики — копией таблицы на группу (E-15): write amplification ×N; замена на
+  таблицу курсоров — в 0.3 (нужна миграция схемы + тест апгрейда с v1).
+- `PackageValidation` (E-11) — отложен до первой публикации на nuget.org (baseline
+  отсутствует), включить сразу после 0.2.
 
 ### CI
 

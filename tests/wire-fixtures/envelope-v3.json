@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "description": "Golden fixture: envelope signed with signature v3. Test-only key, never production.",
+    "signingKeyHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "signatureVersion": "3",
+    "generatedAt": "2026-01-15T12:00:00.0000000\u002B00:00"
+  },
+  "messageId": "11111111-2222-3333-4444-555555555555",
+  "correlationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "causationId": "ffffffff-0000-1111-2222-333333333333",
+  "messageType": "wire-compat.order-placed",
+  "bodyBase64": "eyJvcmRlcklkIjoiNDIiLCJ0b3RhbCI6MTAwfQ==",
+  "contentType": "application/json",
+  "sentAtUnixSeconds": "1768478370",
+  "deliverAtUnixSeconds": "1768478700",
+  "ttlSeconds": "3600",
+  "partitionKey": "orders",
+  "tenantId": "acme",
+  "priority": "5",
+  "replyTo": "replies",
+  "traceParent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+  "headers": {
+    "avtobus-sig-version": "3",
+    "avtobus-signature": "BR8/ifBAQxnRYVgBE0RceCn4F/m0moCajN1pAG9GvRw=",
+    "avtobus-signed-at": "1768478400",
+    "avtobus-signed-by": "wire-gen",
+    "avtobus-user": "tester",
+    "x-note": "unsigned-custom-header"
+  }
+}

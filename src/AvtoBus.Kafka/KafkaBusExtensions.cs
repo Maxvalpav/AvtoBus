@@ -14,7 +14,7 @@ public static class KafkaBusExtensions
         var options = new KafkaOptions();
         configure(options);
 
-        bus.Services.AddSingleton(sp => new KafkaTransport(options));
+        bus.Services.AddSingleton(sp => new KafkaTransport(options, sp.GetService<TimeProvider>()));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<KafkaTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<KafkaTransport>());

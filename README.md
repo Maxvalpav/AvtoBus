@@ -155,6 +155,7 @@ inbox-дедуп или идемпотентный хендлер обязате
 - [`docs/observability.md`](docs/observability.md) — метрики, трейсы, алерты.
 - [`docs/migration.md`](docs/migration.md) — breaking-изменения и обновления.
 - [`docs/compatibility.md`](docs/compatibility.md) — wire-формат и совместимость.
+- [`docs/analyzers.md`](docs/analyzers.md) — правила Roslyn-анализаторов AVB.
 - [`docs/faq.md`](docs/faq.md) — частые вопросы.
 
 ## 🚚 Примеры

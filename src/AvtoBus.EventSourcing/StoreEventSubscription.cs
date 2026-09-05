@@ -19,6 +19,7 @@ public sealed class StoreEventSubscription : BackgroundService
     private readonly string? _streamTypeFilter;
     private readonly long _fromSequence;
     private readonly ILogger<StoreEventSubscription> _log;
+    private readonly TimeProvider _time;
 
     public StoreEventSubscription(
         IEventStore store,
@@ -26,7 +27,8 @@ public sealed class StoreEventSubscription : BackgroundService
         UpcasterChain upcasters,
         IBus bus,
         StoreSubscriptionOptions options,
-        ILogger<StoreEventSubscription> log)
+        ILogger<StoreEventSubscription> log,
+        TimeProvider? time = null)
     {
         _store = store;
         _serializer = serializer;
@@ -36,6 +38,7 @@ public sealed class StoreEventSubscription : BackgroundService
         _streamTypeFilter = options.StreamType;
         _fromSequence = options.FromSequence;
         _log = log;
+        _time = time ?? TimeProvider.System;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -52,7 +55,7 @@ public sealed class StoreEventSubscription : BackgroundService
                 var head = await _store.GetHeadSequenceAsync(ct);
                 if (position >= head)
                 {
-                    await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), _time, ct);
                     continue;
                 }
 
@@ -95,7 +98,7 @@ public sealed class StoreEventSubscription : BackgroundService
             catch (Exception ex)
             {
                 _log.LogError(ex, "Store subscription {Name} failed, retrying", _name);
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                await Task.Delay(TimeSpan.FromSeconds(5), _time, ct);
             }
         }
     }

@@ -8,8 +8,10 @@
   **читать N-1 минимум два минорных релиза**. Breaking wire-изменения —
   только в мажоре (для preview-линейки 0.x — с явной пометкой `breaking для preview`
   в CHANGELOG, как было в 0.1.2).
-- Запланировано: `avtobus-wire-version` в заголовке, golden-фикстуры конвертов
-  прошлых версий в `tests/wire-fixtures/` (conformance «старые конверты читаются»).
+- Запланировано: `avtobus-wire-version` в заголовке.
+- Готово: golden-фикстуры конвертов прошлых версий в `tests/wire-fixtures/`
+  (`envelope-v1/v2/v3.json`) + тесты `WireCompatTests` («старые конверты читаются»,
+  v1 отклоняется при `MinimumSignatureVersion=2`, мутация тела/маршрута ломает подпись).
 
 ## Схема БД outbox
 

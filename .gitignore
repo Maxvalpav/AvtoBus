@@ -41,5 +41,6 @@ docs/*
 !docs/observability.md
 !docs/migration.md
 !docs/faq.md
+!docs/analyzers.md
 # Внешние аудиты — рабочие материалы, не часть репозитория
 audit/

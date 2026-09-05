@@ -14,7 +14,7 @@ public static class NatsBusExtensions
         var options = new NatsOptions();
         configure(options);
 
-        bus.Services.AddSingleton(sp => new NatsTransport(options));
+        bus.Services.AddSingleton(sp => new NatsTransport(options, sp.GetService<TimeProvider>()));
         bus.Services.AddSingleton<ITransport>(sp => sp.GetRequiredService<NatsTransport>());
         bus.Services.AddSingleton<AvtoBus.Observability.IConsumerLagProvider>(sp =>
             sp.GetRequiredService<NatsTransport>());

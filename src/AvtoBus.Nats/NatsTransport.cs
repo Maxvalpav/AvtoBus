@@ -23,11 +23,13 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
     private readonly NatsConnection _connection;
     private readonly INatsJSContext _js;
     private readonly ConcurrentDictionary<string, long> _consumerLags = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
     private int _disposed;
 
-    public NatsTransport(NatsOptions options)
+    public NatsTransport(NatsOptions options, TimeProvider? time = null)
     {
         _options = options;
+        _time = time ?? TimeProvider.System;
         var opts = NatsOpts.Default with { Url = options.Url };
         _connection = new NatsConnection(opts);
         _connection.ConnectAsync().GetAwaiter().GetResult();
@@ -43,11 +45,12 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
         return new NatsTransport(options, conn, js);
     }
 
-    private NatsTransport(NatsOptions options, NatsConnection connection, INatsJSContext js)
+    private NatsTransport(NatsOptions options, NatsConnection connection, INatsJSContext js, TimeProvider? time = null)
     {
         _options = options;
         _connection = connection;
         _js = js;
+        _time = time ?? TimeProvider.System;
     }
 
     public string Name => TransportNames.Nats;
@@ -107,7 +110,7 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Log topology error but don't hide auth failures forever
-            await Task.Delay(1000, ct).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(1000), _time, ct).ConfigureAwait(false);
             throw;
         }
 
@@ -138,7 +141,7 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
                 catch (NatsException)
                 {
                     // Перерыв доставки (реконнект) — продолжаем опрос.
-                    await Task.Delay(100, ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), _time, ct).ConfigureAwait(false);
                     continue;
                 }
 
@@ -149,7 +152,7 @@ public sealed class NatsTransport : ITransport, IConsumerLagProvider, IDisposabl
 
                     // Idle-таймаут подписки: сообщений не было. JetStream-консьюмер жив,
                     // подписка пересоздаётся следующим циклом.
-                    await Task.Delay(50, ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMilliseconds(50), _time, ct).ConfigureAwait(false);
                     continue;
                 }
 

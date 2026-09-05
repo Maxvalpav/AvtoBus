@@ -15,6 +15,7 @@
 - [Наблюдаемость](observability.md) — метрики, трейсы, алерты.
 - [Миграция между версиями](migration.md) — breaking-изменения и порядок обновления.
 - [Совместимость](compatibility.md) — wire-формат, версии подписей, миграции outbox.
+- [Анализаторы](analyzers.md) — таблица правил AVB001–AVB060 (только реализованные).
 - [FAQ](faq.md) — частые вопросы.
 - [CHANGELOG](../CHANGELOG.md) — что изменилось, включая `[Unreleased]`.
 - [SECURITY](../SECURITY.md) — threat model, production-чеклист, приватный репорт.
