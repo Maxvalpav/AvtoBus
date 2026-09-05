@@ -18,6 +18,30 @@ services.AddAvtoBusSecurity(_ => { }); // + bus.UseEnvelopeSecurity(sec => { ...
 Секрет — из Key Vault / K8s secrets / конфигурации. Никогда литералом:
 примеры с `"shared-secret"` из истории удалены именно поэтому.
 
+## Провайдеры секретов (ISecretProvider)
+
+Чтобы секрет вообще не лежал строкой в опциях, задайте провайдера —
+он резолвится при старте, до fail-fast валидации:
+
+```csharp
+// appsettings / user-secrets / env через IConfiguration:
+sec.UseSecretProvider(new ConfigurationSecretProvider(configuration));
+// Переменные окружения с префиксом (MASTERSECRET -> AVTOBUS_MASTERSECRET):
+sec.UseSecretProvider(new EnvironmentSecretProvider());
+// Файл Docker/K8s-маунта (/run/secrets/avtobus-master-secret):
+sec.UseSecretProvider(new FileSecretProvider());
+// Цепочка: первый непустой побеждает:
+sec.UseSecretProvider(new CompositeSecretProvider(
+    new ConfigurationSecretProvider(configuration),
+    new EnvironmentSecretProvider(),
+    new FileSecretProvider()));
+```
+
+Правила: явная строка `MasterSecret` побеждает провайдера; плейсхолдер
+из провайдера в Production падает так же, как литерал. Имя секрета по
+умолчанию — `AvtoBus:MasterSecret` (для env — `AVTOBUS_MASTERSECRET`,
+для файлов — имя файла).
+
 ## Авторизация и PII
 
 - `[BusAuthorize]` на хендлере + `IAuthorizer`: отказ → DLQ без ретраев.

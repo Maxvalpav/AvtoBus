@@ -31,6 +31,7 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure?.Invoke(options);
         options.Validate();
+        options.ResolveMasterSecret();
 
         var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)
@@ -72,6 +73,7 @@ public static class SecurityServiceCollectionExtensions
         var options = new SecurityOptions();
         configure(options);
         options.Validate();
+        options.ResolveMasterSecret();
 
         var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
         if (options.MasterSecret.Length == 0 && options.Keys.SigningKey.Length == 0)

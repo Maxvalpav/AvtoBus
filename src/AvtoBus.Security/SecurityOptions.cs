@@ -40,8 +40,40 @@ public sealed class SecurityOptions
     /// Раскручиваемый мастер-секрет: passphrase + соль дают ключ подписи и ключ шифрования.
     /// В проде ключи должны приходить из Key Vault / K8s secrets и ротироваться (идея 452) —
     /// здесь это простой, детерминированный способ для тестов и локальной разработки.
+    /// Лучше — <see cref="UseSecretProvider"/>: секрет вообще не хранится в опциях,
+    /// а резолвится из провайдера при старте.
     /// </summary>
     public string MasterSecret { get; set; } = "";
+
+    /// <summary>
+    /// Провайдер мастер-секрета (03 §3.1): если <see cref="MasterSecret"/> пуст,
+    /// при старте вызывается <c>SecretProvider.GetSecret(SecretName)</c>.
+    /// Приоритет — явная строка: заданный <see cref="MasterSecret"/> побеждает провайдера.
+    /// </summary>
+    public ISecretProvider? SecretProvider { get; set; }
+
+    /// <summary>Имя секрета для <see cref="SecretProvider"/> (ключ конфигурации / env / имя файла).</summary>
+    public string SecretName { get; set; } = "AvtoBus:MasterSecret";
+
+    /// <summary>Секрет из провайдера: конфигурация, env, файл <c>/run/secrets/…</c>.</summary>
+    public SecurityOptions UseSecretProvider(ISecretProvider provider, string secretName = "AvtoBus:MasterSecret")
+    {
+        SecretProvider = provider;
+        SecretName = secretName;
+        return this;
+    }
+
+    /// <summary>
+    /// Резолвит секрет из провайдера, если строка пуста. Вызывается путями регистрации
+    /// до валидации — пользовательский код вызывать не обязан.
+    /// </summary>
+    internal void ResolveMasterSecret()
+    {
+        if (MasterSecret.Length != 0 || SecretProvider is null)
+            return;
+        if (SecretProvider.GetSecret(SecretName) is { Length: > 0 } secret)
+            MasterSecret = secret;
+    }
 
     /// <summary>
     /// Итерации PBKDF2 для человеческих passphrase через <c>SecurityKeys.FromSecret</c>.

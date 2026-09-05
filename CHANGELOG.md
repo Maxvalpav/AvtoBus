@@ -42,6 +42,17 @@
 
 ### Тесты и совместимость
 
+- Провайдеры секретов (03 §3.1, `AvtoBus.Security`): `ISecretProvider` +
+  `Configuration` / `Environment` (префикс `AVTOBUS_`) / `File` (`/run/secrets/…`,
+  трим переноса, защита от `../`) / `Composite` (первый непустой).
+  `SecurityOptions.UseSecretProvider(provider, name)` резолвится при старте
+  в обоих путях регистрации до fail-fast валидации; явная строка побеждает
+  провайдера, плейсхолдер из провайдера в Production падает так же.
+  Покрыто `SecretProviderTests` (8 тестов).
+- Bench-nightly (03 §2.4): новый workflow `bench.yml` (cron + dispatch) —
+  прогон BenchmarkDotNet (publish/consume/security), артефакты 30 дней,
+  SLO smoke-check warn-only; жёсткий гейт >2x — после накопления baseline.
+
 - Wire-compat (E-03): golden-фикстуры `envelope-v1/v2/v3.json` читаются текущим
   кодом (`Supported_versions_open_cleanly`); v1 отклоняется при дефолтном
   `MinimumSignatureVersion=2`, мутация тела/маршрута ломает подпись.

@@ -368,6 +368,7 @@
         "type": "Project",
         "dependencies": {
           "AvtoBus.Core": "[1.0.0, )",
+          "Microsoft.Extensions.Configuration.Abstractions": "[10.0.4, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.4, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.4, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.4, )"

@@ -1,0 +1,53 @@
+name: Benchmarks (nightly)
+
+on:
+  schedule:
+    # Ночной прогон бенчмарков (аудит 03 §2.4): publish p99, consume p99,
+    # аллокации на сообщение, накладные расходы подписи/шифрования.
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+# Least privilege.
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Benchmarks (nightly, InMemory + Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        # Версия SDK — строго из global.json (как везде в CI).
+
+      - name: Restore
+        run: dotnet restore benchmarks/AvtoBus.Benchmarks --locked-mode
+
+      - name: Run benchmarks
+        run: >
+          dotnet run -c Release --project benchmarks/AvtoBus.Benchmarks --no-restore --
+          --exporters html,csv,md --artifacts benchmarks/AvtoBus.Benchmarks/BenchmarkDotNet.Artifacts
+
+      - name: SLO smoke check (warn-only)
+        shell: pwsh
+        run: |
+          # Мягкий порог против SLO из benchmarks (p50 publish < 20us, p99 < 100us):
+          # на shared-раннерах шум большой, поэтому здесь только warning в summary.
+          # Жёсткий гейт регрессий (>2x к прошлой nightly) — следующим шагом,
+          # когда накопится baseline из артефактов.
+          $reports = Get-ChildItem benchmarks/AvtoBus.Benchmarks/BenchmarkDotNet.Artifacts/results -Filter '*-report.csv' -ErrorAction SilentlyContinue
+          if (-not $reports) { "No BenchmarkDotNet CSV reports found." >> $env:GITHUB_STEP_SUMMARY; exit 0 }
+          "# Benchmarks (nightly)" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($r in $reports) {
+            "## $($r.Name)" >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $r.FullName | Select-Object -First 20 >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmarks-${{ github.run_number }}
+          path: benchmarks/AvtoBus.Benchmarks/BenchmarkDotNet.Artifacts/results/*
+          retention-days: 30
