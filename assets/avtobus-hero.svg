@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" role="img" aria-label="AvtoBus — садись и езжай">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" role="img" aria-label="AvtoBus">
   <defs>
     <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#8B5CF6"/>
@@ -55,9 +55,8 @@
   <rect x="688" y="192" width="140" height="30" rx="7" fill="#111827"/>
   <text x="758" y="213" text-anchor="middle" font-family="Consolas, monospace" font-size="19" font-weight="bold" fill="#FBBF24" letter-spacing="2">EDA-01</text>
 
-  <!-- stripe with slogan -->
+  <!-- stripe -->
   <rect x="70" y="198" width="820" height="40" fill="url(#stripeGrad)"/>
-  <text x="380" y="226" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="23" font-weight="bold" fill="#FFFFFF" letter-spacing="3">AVTOBUS • САДИСЬ И ЕЗЖАЙ</text>
 
   <!-- front badge -->
   <circle cx="862" cy="140" r="17" fill="#FFFFFF" opacity="0.92"/>

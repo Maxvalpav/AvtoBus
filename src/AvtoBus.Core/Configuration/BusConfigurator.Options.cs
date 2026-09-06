@@ -100,6 +100,19 @@ public sealed partial class BusConfigurator
         return this;
     }
 
+    /// <summary>
+    /// Режим CloudEvents 1.0 (03 §1.3): исходящие конверты несут ce-атрибуты
+    /// бинарного режима поверх собственных полей — интероп с Knative, Dapr,
+    /// Azure Event Grid, Kafka Connect. Явные ce-заголовки приложения не
+    /// перезаписываются.
+    /// </summary>
+    public BusConfigurator UseCloudEvents(string source)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        Options.CloudEvents = new AvtoBus.Runtime.CloudEventsOptions { Source = source };
+        return this;
+    }
+
     /// <summary>Размыкает цепь консьюмера после N ошибок подряд (идея 163).</summary>
     public BusConfigurator UseCircuitBreaker(int threshold, TimeSpan? duration = null)
     {

@@ -29,6 +29,13 @@ public static class CloudEvents
     public const string SpecVersion = "1.0";
 
     /// <summary>
+    /// W3C traceparent как расширение CloudEvents: сквозная трассировка для
+    /// внешних потребителей (Knative, Dapr, Event Grid). Ставится только если
+    /// у конверта есть <c>TraceParent</c>.
+    /// </summary>
+    public const string TraceParentHeader = "traceparent";
+
+    /// <summary>
     /// Проставляет обязательные атрибуты CloudEvents в заголовки конверта. Существующие ce-*
     /// заголовки (например, заданные приложением) не перезаписываются.
     /// </summary>
@@ -41,7 +48,22 @@ public static class CloudEvents
         headers.TryAdd(TypeHeader, envelope.MessageType);
         headers.TryAdd(SourceHeader, source);
         headers.TryAdd(TimeHeader, envelope.SentAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+        if (envelope.TraceParent is { Length: > 0 } traceparent)
+            headers.TryAdd(TraceParentHeader, traceparent);
 
         return envelope with { Headers = headers.ToFrozenDictionary(StringComparer.Ordinal) };
     }
+}
+
+/// <summary>
+/// Режим CloudEvents (аудит 03 §1.3): включается через
+/// <c>bus.UseCloudEvents("my-service")</c>. Исходящие конверты несут ce-атрибуты
+/// бинарного режима поверх собственных полей — любой совместимый потребитель
+/// (Knative, Dapr, Azure Event Grid, Kafka Connect) читает их как CloudEvents 1.0.
+/// Входящий путь не меняется: AvtoBus читает свои поля, ce-* игнорирует.
+/// </summary>
+public sealed class CloudEventsOptions
+{
+    /// <summary>Источник событий — имя сервиса-отправителя (<c>ce-source</c>).</summary>
+    public string Source { get; set; } = "";
 }

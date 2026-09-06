@@ -1,13 +1,8 @@
-<p align="center">
-  <img src="assets/avtobus-hero.svg" width="720" alt="AvtoBus — садись и езжай">
-</p>
-
 <h1 align="center">AvtoBus</h1>
 
 <p align="center">
   <b>Современный EDA-фреймворк для ASP.NET Core.</b><br>
-  Конверты, саги, outbox и наблюдаемость из коробки.<br>
-  Даёшь сообщение — <b>садись и езжай</b> 🏁
+  Конверты, саги, outbox и наблюдаемость из коробки.
 </p>
 
 <p align="center">

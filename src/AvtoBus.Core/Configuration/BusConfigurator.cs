@@ -107,6 +107,14 @@ public sealed class BusOptions
     /// <summary>Сжатие тел сообщений (gzip).</summary>
     public AvtoBus.Compression.CompressionOptions? Compression { get; set; }
 
+    /// <summary>
+    /// Режим CloudEvents 1.0 (03 §1.3): исходящие конверты несут ce-атрибуты
+    /// бинарного режима (<c>ce-id</c>, <c>ce-type</c>, <c>ce-source</c>,
+    /// <c>ce-time</c>, <c>traceparent</c>) поверх собственных полей.
+    /// Включается через <c>bus.UseCloudEvents("my-service")</c>.
+    /// </summary>
+    public AvtoBus.Runtime.CloudEventsOptions? CloudEvents { get; set; }
+
     /// <summary>Allowlist типов — если задан, только они проходят десериализацию (идея 451).</summary>
     public HashSet<string>? AllowedMessageTypes { get; set; }
 

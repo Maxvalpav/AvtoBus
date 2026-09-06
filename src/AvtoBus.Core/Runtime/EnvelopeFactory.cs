@@ -102,6 +102,12 @@ public sealed class EnvelopeFactory(BusOptions options, MessageRegistry registry
             envelope = envelope.WithHeader(BusHeaders.ContentEncoding, "gzip");
         }
 
+        // CloudEvents binary-mode (03 §1.3): ce-атрибуты поверх собственных полей.
+        // До подписи — но кастомные заголовки всё равно вне покрытия подписи
+        // (см. WireCompatTests: меняться может только тело/маршрут с её разрывом).
+        if (options.CloudEvents is { Source: { Length: > 0 } source })
+            envelope = CloudEvents.Apply(envelope, source);
+
         return envelope;
     }
 

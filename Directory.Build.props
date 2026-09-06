@@ -32,7 +32,7 @@
   <PropertyGroup Label="Package metadata">
     <Authors>AvtoBus</Authors>
     <Product>AvtoBus</Product>
-    <Description>AvtoBus - EDA framework for ASP.NET Core. Садись и езжай.</Description>
+    <Description>AvtoBus - EDA framework for ASP.NET Core.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- Версия — только из MinVer-тега v* (аудит D3): VersionPrefix удалён, иначе расхождение с CHANGELOG. -->

@@ -42,6 +42,13 @@
 
 ### Тесты и совместимость
 
+- CloudEvents 1.0 (03 §1.3): `bus.UseCloudEvents("my-service")` — исходящие
+  конверты несут ce-атрибуты бинарного режима (`ce-specversion`, `ce-id`,
+  `ce-type`, `ce-source`, `ce-time`, `traceparent` при наличии) поверх собственных
+  полей: интероп с Knative/Dapr/Event Grid/Kafka Connect. Явные ce-заголовки
+  приложения не перезаписываются; по умолчанию выключено. Покрыто
+  `CloudEventsTests` (6 тестов: маппинг, traceparent, no-overwrite, e2e, off-by-default).
+
 - Единая отложенная доставка (04 §1.1): `DeferAsync` и ретрай с бэкоффом теперь
   одинаково работают на Kafka/NATS/Redis — через фолбэк в `IScheduleStore`
   (нужен `UseScheduling`). Новое: `ISupportsDelayedDelivery` (нативно:
