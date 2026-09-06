@@ -8,20 +8,20 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.11" />
     <PackageVersion Include="OpenTelemetry.Api" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.17.0" />
     <PackageVersion Include="MessagePack" Version="3.1.8" />
     <PackageVersion Include="Google.Protobuf" Version="3.29.3" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.4" />
     <PackageVersion Include="Confluent.Kafka" Version="2.8.0" />
@@ -43,8 +43,8 @@
          Версия = та, что привозит SDK 10.0.302 (см. project.assets.json после restore). -->
     <PackageVersion Include="Microsoft.NET.ILLink.Tasks" Version="10.0.10" />
     <PackageVersion Include="MinVer" Version="6.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.4" />
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Label="Test">
